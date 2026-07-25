@@ -1,0 +1,6 @@
+# StudyMate 开发依赖 (Phase 0)
+# 安装: pip install -r requirements/dev.txt
+-r base.txt
+pytest
+black
+flake8

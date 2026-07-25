@@ -1,7 +1,6 @@
 from flask import Flask
-from flask_cors import CORS
-from config import config_map
-from app.extensions import db, migrate
+from app.config import config_map
+from app.extensions import db, migrate, cors
 
 
 def create_app(config_name='default'):
@@ -12,7 +11,7 @@ def create_app(config_name='default'):
     # 初始化扩展
     db.init_app(app)
     migrate.init_app(app, db)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
 
     # 注册蓝图
     from routes.auth import auth_bp
@@ -31,5 +30,10 @@ def create_app(config_name='default'):
     @app.route('/api/health')
     def health():
         return {'status': 'ok', 'message': 'StudyMate API is running'}
+
+    # 根路由：用于快速确认后端已启动
+    @app.route('/')
+    def index():
+        return 'StudyMate Backend Running'
 
     return app

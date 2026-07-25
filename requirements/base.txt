@@ -1,0 +1,10 @@
+# StudyMate 后端核心依赖 (Phase 0)
+# 安装: pip install -r requirements/base.txt
+Flask
+Flask-CORS
+Flask-SQLAlchemy
+Flask-Migrate
+PyMySQL
+python-dotenv
+PyJWT
+requests
