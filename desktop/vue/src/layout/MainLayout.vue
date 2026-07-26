@@ -72,8 +72,10 @@
         </div>
 
         <div class="header-actions">
-          <el-badge :value="3" class="bell">
-            <el-button circle text><el-icon :size="18"><Bell /></el-icon></el-button>
+          <el-badge :value="pendingCount" :hidden="pendingCount === 0" :max="99" class="bell">
+            <el-button circle text @click="reminderVisible = true">
+              <el-icon :size="18"><Bell /></el-icon>
+            </el-button>
           </el-badge>
           <el-avatar :size="36" class="user-avatar">研</el-avatar>
           <div class="user-meta">
@@ -87,16 +89,24 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <ReminderSettings
+      :visible="reminderVisible"
+      @update:visible="reminderVisible = $event"
+      @saved="refreshCount"
+    />
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Odometer, Calendar, List, ChatDotRound, DataLine, Setting,
   MagicStick, Bell, Search, Timer, Files,
 } from '@element-plus/icons-vue'
+import ReminderSettings from '@/views/ReminderSettings.vue'
+import { getPendingReminders } from '@/api/reminder'
 
 const route = useRoute()
 
@@ -115,6 +125,31 @@ const activeMenu = computed(() => route.path)
 
 const todayText = new Date().toLocaleDateString('zh-CN', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
+})
+
+// ---- 提醒：铃铛入口 + 待提醒数量徽标 ----
+const reminderVisible = ref(false)
+const pendingCount = ref(0)
+let countTimer: number | undefined
+
+async function refreshCount() {
+  try {
+    const res = await getPendingReminders()
+    pendingCount.value = (res.data || []).length
+  } catch {
+    /* 忽略瞬时错误 */
+  }
+}
+
+onMounted(() => {
+  refreshCount()
+  countTimer = window.setInterval(refreshCount, 20_000)
+})
+onBeforeUnmount(() => {
+  if (countTimer !== undefined) {
+    clearInterval(countTimer)
+    countTimer = undefined
+  }
 })
 </script>
 
