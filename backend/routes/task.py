@@ -12,7 +12,8 @@ from services.plan_service import (
     import_from_excel,
     import_from_json,
     import_from_pdf,
-    import_from_pdf_ai,
+    preview_pdf_ai,
+    confirm_pdf_ai,
 )
 
 task_bp = Blueprint('task', __name__)
@@ -175,8 +176,8 @@ def import_pdf(current_user):
 
 @task_bp.route('/import/pdf/ai', methods=['POST'])
 @login_required
-def import_pdf_ai(current_user):
-    """从 PDF 智能解析学习任务（AI 识别，需 DEEPSEEK_API_KEY 或开启 PDF_AI_MOCK）。"""
+def import_pdf_ai_preview(current_user):
+    """PDF 智能解析【预览】（U2 人工复核）：识别任务但不落库，返回带置信度与待确认项的列表。"""
     if 'file' not in request.files:
         return jsonify({'code': 400, 'message': '请上传文件'}), 400
     file_storage = request.files['file']
@@ -185,14 +186,37 @@ def import_pdf_ai(current_user):
     if ext and ext != '.pdf':
         return jsonify({'code': 400, 'message': '仅支持 .pdf 文件'}), 400
     try:
-        tasks, skipped = import_from_pdf_ai(current_user.id, file_storage)
+        tasks = preview_pdf_ai(current_user.id, file_storage)
     except ValueError as e:
         return jsonify({'code': 400, 'message': str(e)}), 400
     except Exception as e:
         return jsonify({'code': 500, 'message': f'AI 解析失败: {e}'}), 500
+    # 标记待用户确认（日期缺失/低置信度）
+    for t in tasks:
+        t['needs_review'] = (t.get('date') is None) or (t.get('confidence') is not None and float(t['confidence']) < 0.6)
     return jsonify({
         'code': 200,
-        'message': f'智能解析导入 {len(tasks)} 条（跳过 {skipped} 条无效）',
+        'message': f'识别到 {len(tasks)} 条任务，请在确认页复核后保存',
+        'data': {'count': len(tasks), 'tasks': tasks},
+    })
+
+
+@task_bp.route('/import/pdf/ai/confirm', methods=['POST'])
+@login_required
+def import_pdf_ai_confirm(current_user):
+    """PDF 智能解析【确认落库】：接收经前端复核（可修正 date/subject 等）后的任务列表。"""
+    items = request.get_json(silent=True)
+    if not isinstance(items, list):
+        return jsonify({'code': 400, 'message': 'body 应为任务数组'}), 400
+    try:
+        tasks, skipped = confirm_pdf_ai(current_user.id, items)
+    except ValueError as e:
+        return jsonify({'code': 400, 'message': str(e)}), 400
+    except Exception as e:
+        return jsonify({'code': 500, 'message': f'保存失败: {e}'}), 500
+    return jsonify({
+        'code': 200,
+        'message': f'已保存 {len(tasks)} 条（跳过 {skipped} 条无效）',
         'data': {'count': len(tasks), 'skipped': skipped, 'tasks': [t.to_dict() for t in tasks]},
     })
 

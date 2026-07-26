@@ -126,8 +126,11 @@ def _parse_tasks_json(raw: str) -> list[dict]:
             'start_time': t.get('start_time'),
             'end_time': t.get('end_time'),
             'status': t.get('status', 'pending'),
+            'confidence': t.get('confidence'),
+            'reason': t.get('reason'),
+            'date_note': t.get('date_note'),
         }
-        if not item['date'] or not item['content']:
+        if not item['content']:
             continue
         result.append(item)
     return result
@@ -142,4 +145,7 @@ def _task_to_extract_dict(t) -> dict:
         'start_time': t.start_time.strftime('%H:%M') if t.start_time else None,
         'end_time': t.end_time.strftime('%H:%M') if t.end_time else None,
         'status': t.status,
+        'confidence': 1.0,
+        'reason': '正则降级解析',
+        'date_note': None,
     }

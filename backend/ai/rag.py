@@ -80,3 +80,50 @@ class RAGService:
         self.documents = []
         self.embeddings = None
         logger.info('知识库已清空')
+
+    # ------------------ 轻量关键词检索（MVP，无需 torch / 向量库） ------------------
+    @staticmethod
+    def keyword_retrieve(query: str, materials: list, top_k: int = 3) -> list:
+        """基于关键词重叠的资料检索（Phase 5 U3 MVP）。
+
+        不依赖 embedding 模型，纯离线可用；对中文做简单的二元组(n-gram)重叠打分。
+        materials 为 Material 对象或 dict（含 id/title/content）。
+        返回 [{id, title, score, snippet}] 按相关度降序。
+        """
+        import re
+
+        def tokenize(text: str) -> set:
+            text = (text or '').lower()
+            # 中文按 2-gram 切，英文按单词切
+            grams = set(re.findall(r'[\u4e00-\u9fff]', text))
+            for m in re.findall(r'[a-z0-9]+', text):
+                grams.add(m)
+            # 中文二元组
+            cn = re.findall(r'[\u4e00-\u9fff]{2,}', text)
+            for w in cn:
+                for i in range(len(w) - 1):
+                    grams.add(w[i:i + 2])
+            return grams
+
+        q_tokens = tokenize(query)
+        if not q_tokens:
+            return []
+
+        scored = []
+        for mat in materials:
+            if isinstance(mat, dict):
+                mid = mat.get('id')
+                title = mat.get('title', '')
+                content = mat.get('content', '')
+            else:
+                mid, title, content = mat.id, mat.title, mat.content
+            mat_tokens = tokenize(title + '\n' + content)
+            overlap = len(q_tokens & mat_tokens)
+            if overlap == 0:
+                continue
+            score = round(overlap / (len(q_tokens | mat_tokens) or 1), 3)
+            snippet = (content or '')[:120]
+            scored.append({'id': mid, 'title': title, 'score': score, 'snippet': snippet})
+
+        scored.sort(key=lambda x: x['score'], reverse=True)
+        return scored[:top_k]

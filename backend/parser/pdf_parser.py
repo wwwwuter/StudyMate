@@ -8,7 +8,21 @@ from utils.subject_utils import normalize_subject
 def extract_pdf_text(file):
     """从 PDF 文件中提取纯文本（延迟导入 pdfminer，避免应用启动强依赖）。"""
     from pdfminer.high_level import extract_text
+    if hasattr(file, 'seek'):
+        file.seek(0)
     return extract_text(file)
+
+
+def is_scanned_pdf(file):
+    """粗判是否为扫描件/图片型 PDF（U4 OCR 占位）。
+
+    通过检测文本层字符量判断：几乎没有可提取文本则视为扫描件。
+    真实「图片→文字」OCR 识别需在后续阶段接入 paddleocr 等引擎。
+    """
+    text = extract_pdf_text(file)
+    if hasattr(file, 'seek'):
+        file.seek(0)
+    return len(text.strip()) < 30
 
 
 def parse_pdf_tasks(file, user_id):

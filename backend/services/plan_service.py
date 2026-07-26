@@ -71,7 +71,7 @@ def _build_task(user_id, data, source):
     if start_time and end_time and start_time > end_time:
         raise ValueError('结束时间不能早于开始时间')
 
-    return StudyTask(
+    task = StudyTask(
         user_id=user_id,
         date=task_date,
         subject=subject,
@@ -81,6 +81,20 @@ def _build_task(user_id, data, source):
         status=status,
         plan_source=data.get('plan_source', source),
     )
+    # U5 字段扩展（可选）
+    if data.get('priority') is not None:
+        try:
+            task.priority = int(data['priority'])
+        except (ValueError, TypeError):
+            pass
+    if data.get('estimated_minutes') is not None:
+        try:
+            task.estimated_minutes = int(data['estimated_minutes'])
+        except (ValueError, TypeError):
+            pass
+    if data.get('tags') is not None:
+        task.tags = data['tags']
+    return task
 
 
 # ------------------------- CRUD -------------------------
@@ -176,6 +190,18 @@ def update_task(user_id, task_id, data):
         if not StudyTask.is_valid_status(data['status']):
             raise ValueError(f'非法 status: {data["status"]}')
         task.status = data['status']
+    if 'priority' in data and data['priority'] is not None:
+        try:
+            task.priority = int(data['priority'])
+        except (ValueError, TypeError):
+            raise ValueError('priority 应为整数')
+    if 'estimated_minutes' in data and data['estimated_minutes'] is not None:
+        try:
+            task.estimated_minutes = int(data['estimated_minutes'])
+        except (ValueError, TypeError):
+            raise ValueError('estimated_minutes 应为整数')
+    if 'tags' in data:
+        task.tags = data['tags']
 
     db.session.commit()
     return task
@@ -235,16 +261,36 @@ def import_from_pdf(user_id, file_storage):
     return _persist_imported(user_id, parse_pdf_tasks(file_storage, user_id))
 
 
-def import_from_pdf_ai(user_id, file_storage):
-    """智能解析：提取 PDF 文本 → AI 识别任务 → 逐条校验 → 去重落库。
+def preview_pdf_ai(user_id, file_storage):
+    """智能解析预览（U2 人工复核）：提取文本 → AI 识别任务 → 返回结构化列表（不落库）。
 
-    返回 (persisted_tasks, skipped_count)，skipped 为被校验规则拒绝的无效条目数。
+    每条含 date（相对/歧义时为 null）、subject、content、start_time、end_time、
+    status、confidence、reason、date_note，便于前端展示置信度并允许用户修正后落库。
     AI 层在无密钥且未开启 PDF_AI_MOCK 时会抛出 ValueError，由路由转成明确错误。
     """
+    try:
+        if pdf_parser.is_scanned_pdf(file_storage):
+            raise ValueError(
+                '该 PDF 未检测到文本层，疑似扫描件/图片型文档。'
+                '真实 OCR（图片转文字）识别需在后续阶段接入 paddleocr 等引擎，'
+                '当前暂不支持扫描件解析。'
+            )
+    except Exception:
+        # 扫描检测失败（如依赖缺失）时跳过，直接进入 AI 解析流程
+        pass
     text = pdf_parser.extract_pdf_text(file_storage)
     from ai.service import AIService
-    items = AIService().extract_tasks(text, user_id)
+    return AIService().extract_tasks(text, user_id)
 
+
+def confirm_pdf_ai(user_id, items):
+    """将人工复核后的任务列表落库（校验 + 去重）。
+
+    返回 (persisted_tasks, skipped_count)。相对日期等无效条目在校验阶段被跳过，
+    因此前端应在确认前补全 date。
+    """
+    if not isinstance(items, list):
+        raise ValueError('任务列表应为数组')
     valid = []
     skipped = 0
     for item in items:
@@ -252,6 +298,5 @@ def import_from_pdf_ai(user_id, file_storage):
             valid.append(_build_task(user_id, item, StudyTask.SOURCE_PDF))
         except ValueError:
             skipped += 1
-
     persisted = _persist_imported(user_id, valid)
     return persisted, skipped
