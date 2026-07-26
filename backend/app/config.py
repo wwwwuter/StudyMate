@@ -61,6 +61,17 @@ class ProductionConfig(Config):
     DEBUG = False
 
 
+# ---- 提醒系统（Phase 6，基于 APScheduler）----
+# 放在模块级，便于 services.reminder_service 直接导入，且不随 Config 实例变化。
+REMINDER_ENABLED = os.getenv('REMINDER_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+REMINDER_LEAD_MINUTES = int(os.getenv('REMINDER_LEAD_MINUTES', '10'))
+REMINDER_SWEEP_INTERVAL = int(os.getenv('REMINDER_SWEEP_INTERVAL', '60'))
+# 任务开始后才扫描到时，仍允许在宽限期内补发一次提醒
+REMINDER_GRACE_MINUTES = int(os.getenv('REMINDER_GRACE_MINUTES', '2'))
+# 单次扫描只向前看这么久，避免无谓遍历；需大于最大提前量
+REMINDER_MAX_LOOKAHEAD = int(os.getenv('REMINDER_MAX_LOOKAHEAD', '120'))
+
+
 config_map = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,

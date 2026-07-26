@@ -20,6 +20,7 @@ def create_app(config_name='default'):
     from routes.record import record_bp
     from routes.ai_route import ai_bp
     from routes.material import material_bp
+    from routes.reminder import pending, ack, get_settings, save_settings, sweep
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(user_bp, url_prefix='/api/user')
@@ -27,6 +28,18 @@ def create_app(config_name='default'):
     app.register_blueprint(record_bp, url_prefix='/api/records')
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
     app.register_blueprint(material_bp, url_prefix='/api/materials')
+
+    # 提醒路由
+    from flask import Blueprint
+    reminder_bp = Blueprint('reminder', __name__)
+    reminder_bp.add_url_rule('/reminders/pending', 'reminder_pending', pending, methods=['GET'])
+    reminder_bp.add_url_rule('/reminders/ack', 'reminder_ack', ack, methods=['POST'])
+    reminder_bp.add_url_rule('/reminders/settings', 'reminder_settings_get', get_settings, methods=['GET'])
+    reminder_bp.add_url_rule('/reminders/settings', 'reminder_settings_save', save_settings, methods=['POST'])
+    reminder_bp.add_url_rule('/reminders/sweep', 'reminder_sweep', sweep, methods=['POST'])
+    app.register_blueprint(reminder_bp, url_prefix='/api')
+
+    return app
 
     # 健康检查
     @app.route('/api/health')
