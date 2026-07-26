@@ -1,38 +1,132 @@
+/* ============================================================
+   StudyMate · 设计系统 (Design Tokens)
+   风格方向：森林青绿 (Forest Teal) · 浅色模式
+   组件库：Element Plus（通过 CSS 变量覆盖主题）
+   ============================================================ */
+
 :root {
+  /* ---------- 品牌主色（青绿 Teal）---------- */
+  --brand-900: #0B3B36;
+  --brand-800: #0C5E58;
+  --brand-700: #0F766E;   /* 主色 primary */
+  --brand-600: #0D9488;
+  --brand-500: #14B8A6;
+  --brand-400: #2DD4BF;
+  --brand-100: #CCFBF1;
+  --brand-50:  #ECFDF5;   /* 主色浅底 / 选中背景 */
 
-    --primary-color: #2563EB;
+  /* ---------- AI 强调色（天蓝 Cyan，与主色区分）---------- */
+  --ai-600: #0284C7;
+  --ai-500: #0EA5E9;
+  --ai-400: #38BDF8;
+  --ai-50:  #E0F2FE;
 
-    --bg-color: #F8FAFC;
+  /* ---------- 中性色 / 背景 ---------- */
+  --bg-page:    #F4F8F6;   /* 页面背景（带极淡绿调）*/
+  --bg-card:    #FFFFFF;   /* 卡片背景 */
+  --bg-soft:    #F1F6F4;   /* 次级浅底 */
+  --border:     #E3EBE8;   /* 描边 */
+  --border-strong: #CDD9D4;
 
-    --card-color: #FFFFFF;
+  /* ---------- 文字 ---------- */
+  --text-strong: #16302B;  /* 标题（深森林墨）*/
+  --text:        #1F2A28;  /* 正文 */
+  --text-secondary: #5B6B66;
+  --text-muted:  #93A39D;
+  --text-on-brand: #FFFFFF;
 
-    --border-color: #E5E7EB;
+  /* ---------- 状态色 ---------- */
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger:  #EF4444;
+  --info:    #64748B;
 
-    --ai-color: #7C3AED;
+  /* ---------- 圆角 ---------- */
+  --radius-sm: 6px;
+  --radius:   10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
 
+  /* ---------- 阴影 ---------- */
+  --shadow-sm: 0 1px 2px rgba(15, 118, 110, .06);
+  --shadow:    0 4px 16px rgba(15, 118, 110, .08);
+  --shadow-lg: 0 12px 32px rgba(15, 118, 110, .12);
+
+  /* ---------- 字体 ---------- */
+  --font-sans: "Microsoft YaHei", "PingFang SC", "Inter", system-ui, sans-serif;
+
+  /* ============================================================
+     Element Plus 主题变量覆盖
+     ============================================================ */
+  --el-color-primary: #0F766E;
+  --el-color-primary-light-3: #57A099;
+  --el-color-primary-light-5: #87BAB6;
+  --el-color-primary-light-7: #B8D6D3;
+  --el-color-primary-light-8: #CFE3E2;
+  --el-color-primary-light-9: #E7F1F0;
+  --el-color-primary-dark-2:  #0C5E58;
+
+  --el-color-success: #10B981;
+  --el-color-warning: #F59E0B;
+  --el-color-danger:  #EF4444;
+  --el-color-error:   #EF4444;
+  --el-color-info:    #64748B;
+
+  --el-bg-color: #FFFFFF;
+  --el-bg-color-page: #F4F8F6;
+  --el-bg-color-overlay: #FFFFFF;
+
+  --el-text-color-primary: #1F2A28;
+  --el-text-color-regular: #1F2A28;
+  --el-text-color-secondary: #5B6B66;
+  --el-text-color-placeholder: #93A39D;
+
+  --el-border-color: #E3EBE8;
+  --el-border-color-light: #EAF1EF;
+  --el-border-color-lighter: #F1F6F4;
+  --el-border-color-hover: #CDD9D4;
+
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 999px;
+
+  --el-font-family: var(--font-sans);
 }
 
+/* ---------- 基础重置 ---------- */
+* { box-sizing: border-box; }
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
 
 body {
-
-    margin:0;
-
-    padding:0;
-
-    background:#F8FAFC;
-
-    font-family:
-    "Microsoft YaHei",
-    "Inter",
-    sans-serif;
-
+  background: var(--bg-page);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
-
-#app {
-
-    width:100%;
-
-    height:100vh;
-
+/* ---------- Element Plus 菜单选中态微调（更贴合品牌）---------- */
+.el-menu-item.is-active {
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-weight: 600;
+  border-right: 3px solid var(--brand-600);
 }
+.el-menu--vertical .el-menu-item:not(.is-active):hover {
+  background: var(--bg-soft);
+  color: var(--brand-700);
+}
+
+/* ---------- 滚动条（浅绿主题）---------- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb {
+  background: #CFE3E2;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: #B8D6D3; }
