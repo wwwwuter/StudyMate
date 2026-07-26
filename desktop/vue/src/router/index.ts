@@ -9,8 +9,8 @@ const router = createRouter({
       component: MainLayout,
       children: [
         { path: '', name: 'dashboard', component: () => import('../views/Dashboard.vue') },
-        { path: 'plan', component: () => import('../views/ComingSoon.vue') },
-        { path: 'tasks', component: () => import('../views/ComingSoon.vue') },
+        { path: 'plan', component: () => import('../views/TasksView.vue') },
+        { path: 'tasks', component: () => import('../views/TasksView.vue') },
         { path: 'ai', component: () => import('../views/ComingSoon.vue') },
         { path: 'stats', component: () => import('../views/ComingSoon.vue') },
         { path: 'settings', component: () => import('../views/ComingSoon.vue') },
