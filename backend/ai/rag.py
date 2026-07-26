@@ -1,14 +1,12 @@
 import os
 import logging
 from typing import List
-from sentence_transformers import SentenceTransformer
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
 class RAGService:
-    """RAG 知识库服务"""
+    """RAG 知识库服务（Phase 0 预留接口，模型依赖 sentence_transformers/numpy 延迟加载）"""
 
     def __init__(self):
         self.embedding_model = None
@@ -17,9 +15,14 @@ class RAGService:
         self._model_name = 'paraphrase-multilingual-MiniLM-L12-v2'
 
     def _load_embedding_model(self):
-        """延迟加载 embedding 模型"""
+        """延迟加载 embedding 模型（仅在实际调用 RAG 时安装并加载）"""
         if self.embedding_model is None:
             try:
+                # 延迟导入：sentence_transformers / numpy 属后续阶段 AI 依赖，
+                # 避免在应用启动（create_app）时强制安装 torch 重依赖
+                from sentence_transformers import SentenceTransformer
+                import numpy as np
+                self._np = np
                 self.embedding_model = SentenceTransformer(self._model_name)
                 logger.info(f'Embedding 模型加载成功: {self._model_name}')
             except Exception as e:
@@ -48,7 +51,7 @@ class RAGService:
         if self.embeddings is None:
             self.embeddings = new_embeddings
         else:
-            self.embeddings = np.vstack([self.embeddings, new_embeddings])
+            self.embeddings = self._np.vstack([self.embeddings, new_embeddings])
 
         logger.info(f'文档已添加，当前共 {len(self.documents)} 个文本块')
         return len(chunks)
@@ -62,8 +65,8 @@ class RAGService:
         query_embedding = self.embedding_model.encode([query])
 
         # 计算余弦相似度
-        scores = np.dot(self.embeddings, query_embedding.T).flatten()
-        top_indices = np.argsort(scores)[-top_k:][::-1]
+        scores = self._np.dot(self.embeddings, query_embedding.T).flatten()
+        top_indices = self._np.argsort(scores)[-top_k:][::-1]
 
         results = []
         for idx in top_indices:

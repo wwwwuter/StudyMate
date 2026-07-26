@@ -1,5 +1,6 @@
 # StudyMate 后端核心依赖 (Phase 0)
 # 安装: pip install -r requirements/base.txt
+# 仅包含 Phase 0 基础依赖；完整依赖（含后续 AI/ML）见 backend/requirements.txt
 Flask
 Flask-CORS
 Flask-SQLAlchemy

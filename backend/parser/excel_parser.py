@@ -1,5 +1,4 @@
 from datetime import datetime
-from openpyxl import load_workbook
 from models.task import StudyTask
 
 # 支持的科目映射
@@ -13,6 +12,9 @@ SUBJECT_MAP = {
 
 def parse_excel_tasks(file, user_id):
     """解析 Excel 文件中的学习计划"""
+    # 延迟导入：openpyxl 属后续阶段解析依赖，避免在应用启动时强制安装
+    from openpyxl import load_workbook
+
     wb = load_workbook(file)
     ws = wb.active
     tasks = []

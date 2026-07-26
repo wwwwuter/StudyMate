@@ -1,12 +1,14 @@
 import re
 from datetime import datetime
 from io import BytesIO
-from pdfminer.high_level import extract_text
 from models.task import StudyTask
 
 
 def parse_pdf_tasks(file, user_id):
     """解析 PDF 文件中的学习计划"""
+    # 延迟导入：pdfminer 属后续阶段解析依赖，避免在应用启动时强制安装
+    from pdfminer.high_level import extract_text
+
     # 提取文本
     text = extract_text(file)
 
