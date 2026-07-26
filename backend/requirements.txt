@@ -13,10 +13,10 @@ APScheduler==3.10.4
 openpyxl==3.1.5
 pypdf>=3.0.0
 pdfminer.six==20231228
-langchain==0.2.14
-langchain-community==0.2.12
-langchain-openai==0.1.23
+# langchain 系列已移除：当前代码未 import，且其 0.2.x 硬锁 numpy<2.0，
+# 与 Python 3.13 + 现代科学栈（numpy>=2）冲突，会装回崩溃的 MINGW 实验构建。
+# 若未来实现 RAG，再按需加回新版（>=0.3，支持 numpy2）。
 sentence-transformers==2.7.0
 faiss-cpu>=1.9.0
-numpy>=1.26.4
+numpy>=2.0  # Python 3.13 需 numpy>=2（官方 cp313 轮子；<2 会装回崩溃的 MINGW 实验构建）
 gunicorn==22.0.0
