@@ -10,6 +10,9 @@ export interface TaskItem {
   end_time: string | null
   status: 'pending' | 'done' | 'cancelled'
   plan_source: 'manual' | 'excel' | 'json' | 'pdf' | 'auto'
+  priority?: number
+  estimated_minutes?: number | null
+  tags?: string | null
   create_time: string
   update_time: string
 }
@@ -72,6 +75,34 @@ export const importPdfAi = (file: File, fileName: string) => {
     })
     .then((r) => r.data)
 }
+
+export interface PreviewTask {
+  date: string | null
+  subject: string
+  content: string
+  start_time: string | null
+  end_time: string | null
+  status: string
+  confidence?: number | null
+  reason?: string | null
+  date_note?: string | null
+  needs_review?: boolean
+}
+
+export const importPdfAiPreview = (file: File, fileName: string) => {
+  const form = new FormData()
+  form.append('file', file, fileName)
+  return request
+    .post('/tasks/import/pdf/ai', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    .then((r) => r.data as { code: number; data: { count: number; tasks: PreviewTask[] } })
+}
+
+export const confirmPdfAi = (items: PreviewTask[]) =>
+  request
+    .post('/tasks/import/pdf/ai/confirm', items)
+    .then((r) => r.data as { code: number; message?: string; data: { count: number; skipped: number } })
 
 export const dailyStats = (date: string) =>
   request.get('/tasks/stats/daily', { params: { date } }).then((r) => r.data.data as DailyStats)

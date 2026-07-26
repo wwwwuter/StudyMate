@@ -25,6 +25,14 @@
           <el-icon><List /></el-icon>
           <span>任务</span>
         </el-menu-item>
+        <el-menu-item index="/timer">
+          <el-icon><Timer /></el-icon>
+          <span>计时</span>
+        </el-menu-item>
+        <el-menu-item index="/materials">
+          <el-icon><Files /></el-icon>
+          <span>资料库</span>
+        </el-menu-item>
         <el-menu-item index="/ai">
           <el-icon><ChatDotRound /></el-icon>
           <span>AI 助手</span>
@@ -87,7 +95,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Odometer, Calendar, List, ChatDotRound, DataLine, Setting,
-  MagicStick, Bell, Search,
+  MagicStick, Bell, Search, Timer, Files,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -96,6 +104,8 @@ const titleMap: Record<string, string> = {
   '/': '仪表盘',
   '/plan': '学习计划',
   '/tasks': '任务',
+  '/timer': '计时',
+  '/materials': '资料库',
   '/ai': 'AI 助手',
   '/stats': '数据统计',
   '/settings': '设置',

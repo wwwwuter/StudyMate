@@ -160,6 +160,19 @@
             <el-option v-for="s in STATUS_LIST" :key="s.value" :label="s.label" :value="s.value" />
           </el-select>
         </el-form-item>
+        <el-form-item label="优先级">
+          <el-select v-model="form.priority" style="width: 100%">
+            <el-option :value="0" label="普通" />
+            <el-option :value="1" label="高" />
+            <el-option :value="2" label="紧急" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="预估时长">
+          <el-input-number v-model="form.estimated_minutes" :min="0" :max="600" :controls="false" placeholder="分钟" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="form.tags" placeholder="逗号分隔，如：强化,真题" style="width: 100%" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -205,6 +218,64 @@
         <el-button type="primary" :loading="submitting" :disabled="!importFile" @click="submitImport">开始导入</el-button>
       </template>
     </el-dialog>
+
+    <!-- AI 导入预览 / 人工复核（U2） -->
+    <el-dialog v-model="previewVisible" title="AI 识别结果预览（请复核后保存）" width="900px" top="5vh">
+      <el-alert
+        v-if="previewList.some((t) => t.needs_review)"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="部分任务日期缺失或置信度较低，已标红，请在保存前补全日期。"
+        style="margin-bottom: 12px"
+      />
+      <el-table :data="previewList" border size="small" max-height="460">
+        <el-table-column label="日期" width="150">
+          <template #default="{ row }">
+            <el-date-picker
+              v-model="row.date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="补全日期"
+              :class="{ 'cell-warn': row.needs_review && !row.date }"
+              style="width: 100%"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="科目" width="110">
+          <template #default="{ row }"><el-input v-model="row.subject" /></template>
+        </el-table-column>
+        <el-table-column label="任务内容" min-width="180">
+          <template #default="{ row }"><el-input v-model="row.content" /></template>
+        </el-table-column>
+        <el-table-column label="开始" width="110">
+          <template #default="{ row }">
+            <el-time-picker v-model="row.start_time" format="HH:mm" value-format="HH:mm" placeholder="可选" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="结束" width="110">
+          <template #default="{ row }">
+            <el-time-picker v-model="row.end_time" format="HH:mm" value-format="HH:mm" placeholder="可选" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="置信度" width="120">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.reason" :content="row.reason" placement="top">
+              <el-tag :type="confColor(row.confidence)" size="small">
+                {{ row.confidence != null ? Math.round(row.confidence * 100) + '%' : '—' }}
+              </el-tag>
+            </el-tooltip>
+            <el-tag v-else :type="confColor(row.confidence)" size="small">
+              {{ row.confidence != null ? Math.round(row.confidence * 100) + '%' : '—' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="previewVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="confirmSave">确认保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -216,8 +287,9 @@ import {
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import {
-  listTasks, createTask, updateTask, deleteTask, batchCreate, importTasks, importPdfAi, dailyStats,
-  type TaskItem, type DailyStats,
+  listTasks, createTask, updateTask, deleteTask, batchCreate, importTasks, dailyStats,
+  importPdfAiPreview, confirmPdfAi,
+  type TaskItem, type DailyStats, type PreviewTask,
 } from '@/api/task'
 
 const userStore = useUserStore()
@@ -316,6 +388,9 @@ interface TaskForm {
   start_time: string | null
   end_time: string | null
   status: 'pending' | 'done' | 'cancelled'
+  priority: number
+  estimated_minutes: number | null
+  tags: string | null
 }
 const form = ref<TaskForm>({
   date: '',
@@ -324,6 +399,9 @@ const form = ref<TaskForm>({
   start_time: null,
   end_time: null,
   status: 'pending',
+  priority: 0,
+  estimated_minutes: null,
+  tags: null,
 })
 const rules: FormRules = {
   date: [{ required: true, message: '请选择日期', trigger: 'change' }],
@@ -332,7 +410,7 @@ const rules: FormRules = {
 }
 
 function resetForm() {
-  form.value = { date: '', subject: '', content: '', start_time: '', end_time: '', status: 'pending' }
+  form.value = { date: '', subject: '', content: '', start_time: '', end_time: '', status: 'pending', priority: 0, estimated_minutes: null, tags: null }
   editingId.value = null
 }
 function openCreate() {
@@ -348,6 +426,9 @@ function openEdit(row: TaskItem) {
     start_time: row.start_time || '',
     end_time: row.end_time || '',
     status: row.status,
+    priority: row.priority ?? 0,
+    estimated_minutes: row.estimated_minutes ?? null,
+    tags: row.tags ?? null,
   }
   formVisible.value = true
 }
@@ -453,19 +534,52 @@ function onImportFile(file: { raw: File }) {
 async function submitImport() {
   if (!importFile.value) return
   submitting.value = true
+  const file = importFile.value
   try {
-    const file = importFile.value
-    const res = importType.value === 'pdf-ai'
-      ? await importPdfAi(file, file.name)
-      : await importTasks(importType.value, file, file.name)
-    ElMessage.success(res.message || '导入成功')
-    importVisible.value = false
-    await loadTasks()
+    if (importType.value === 'pdf-ai') {
+      const res = await importPdfAiPreview(file, file.name)
+      previewList.value = (res.data?.tasks || []).map((t) => ({ ...t }))
+      if (!previewList.value.length) {
+        ElMessage.info('未识别到任务')
+      } else {
+        importVisible.value = false
+        previewVisible.value = true
+      }
+    } else {
+      const res = await importTasks(importType.value, file, file.name)
+      ElMessage.success(res.message || '导入成功')
+      importVisible.value = false
+      await loadTasks()
+    }
   } catch (e) {
     ElMessage.error((e as Error).message || '导入失败')
   } finally {
     submitting.value = false
   }
+}
+
+// ---- AI 导入预览 / 人工复核（U2） ----
+const previewVisible = ref(false)
+const previewList = ref<PreviewTask[]>([])
+async function confirmSave() {
+  submitting.value = true
+  try {
+    const res = await confirmPdfAi(previewList.value)
+    ElMessage.success(res.message || `已保存 ${res.data?.count ?? 0} 条（跳过 ${res.data?.skipped ?? 0}）`)
+    previewVisible.value = false
+    previewList.value = []
+    await loadTasks()
+  } catch (e) {
+    ElMessage.error((e as Error).message || '保存失败')
+  } finally {
+    submitting.value = false
+  }
+}
+function confColor(c?: number | null): string {
+  if (c == null) return 'info'
+  if (c >= 0.8) return 'success'
+  if (c >= 0.6) return 'warning'
+  return 'danger'
 }
 </script>
 
@@ -501,4 +615,5 @@ async function submitImport() {
 
 .hint { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px; }
 .hint code { background: var(--bg-soft); padding: 1px 6px; border-radius: 4px; color: var(--brand-700); }
+.cell-warn { box-shadow: 0 0 0 2px #F8717155; border-radius: 6px; }
 </style>
