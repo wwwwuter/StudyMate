@@ -1,8 +1,8 @@
-"""init schema
+"""init schema: users/study_tasks/study_records/ai_analysis/login_tickets
 
-Revision ID: f23853b45e90
+Revision ID: 0b7f891a6d8e
 Revises: 
-Create Date: 2026-07-26 16:48:15.448683
+Create Date: 2026-07-26 17:40:22.569009
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'f23853b45e90'
+revision = '0b7f891a6d8e'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -21,13 +21,22 @@ def upgrade():
     op.create_table('users',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('openid', sa.String(length=64), nullable=False),
+    sa.Column('unionid', sa.String(length=64), nullable=True),
     sa.Column('nickname', sa.String(length=64), nullable=True),
-    sa.Column('avatar', sa.String(length=256), nullable=True),
+    sa.Column('avatar', sa.String(length=512), nullable=True),
+    sa.Column('phone', sa.String(length=20), nullable=True),
+    sa.Column('gender', sa.SmallInteger(), nullable=True),
+    sa.Column('country', sa.String(length=64), nullable=True),
+    sa.Column('province', sa.String(length=64), nullable=True),
+    sa.Column('city', sa.String(length=64), nullable=True),
+    sa.Column('last_login_at', sa.DateTime(), nullable=True),
     sa.Column('create_time', sa.DateTime(), nullable=True),
+    sa.Column('update_time', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('users', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_users_openid'), ['openid'], unique=True)
+        batch_op.create_index(batch_op.f('ix_users_unionid'), ['unionid'], unique=False)
 
     op.create_table('ai_analysis',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -41,6 +50,23 @@ def upgrade():
     )
     with op.batch_alter_table('ai_analysis', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_ai_analysis_user_id'), ['user_id'], unique=False)
+
+    op.create_table('login_tickets',
+    sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('ticket', sa.String(length=64), nullable=False),
+    sa.Column('openid', sa.String(length=64), nullable=True),
+    sa.Column('user_id', sa.Integer(), nullable=True),
+    sa.Column('status', sa.String(length=16), nullable=False),
+    sa.Column('expire_at', sa.DateTime(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('confirmed_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('login_tickets', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_login_tickets_openid'), ['openid'], unique=False)
+        batch_op.create_index(batch_op.f('ix_login_tickets_ticket'), ['ticket'], unique=True)
+        batch_op.create_index(batch_op.f('ix_login_tickets_user_id'), ['user_id'], unique=False)
 
     op.create_table('study_tasks',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -91,11 +117,18 @@ def downgrade():
         batch_op.drop_index(batch_op.f('ix_study_tasks_date'))
 
     op.drop_table('study_tasks')
+    with op.batch_alter_table('login_tickets', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_login_tickets_user_id'))
+        batch_op.drop_index(batch_op.f('ix_login_tickets_ticket'))
+        batch_op.drop_index(batch_op.f('ix_login_tickets_openid'))
+
+    op.drop_table('login_tickets')
     with op.batch_alter_table('ai_analysis', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_ai_analysis_user_id'))
 
     op.drop_table('ai_analysis')
     with op.batch_alter_table('users', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_users_unionid'))
         batch_op.drop_index(batch_op.f('ix_users_openid'))
 
     op.drop_table('users')
