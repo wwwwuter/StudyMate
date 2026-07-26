@@ -39,7 +39,7 @@
         </el-menu-item>
         <el-menu-item index="/stats">
           <el-icon><DataLine /></el-icon>
-          <span>数据统计</span>
+          <span>数据分析</span>
         </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
@@ -117,7 +117,7 @@ const titleMap: Record<string, string> = {
   '/timer': '计时',
   '/materials': '资料库',
   '/ai': 'AI 助手',
-  '/stats': '数据统计',
+  '/stats': '数据分析',
   '/settings': '设置',
 }
 const pageTitle = computed(() => titleMap[route.path] ?? 'StudyMate')

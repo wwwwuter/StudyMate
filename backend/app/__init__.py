@@ -20,6 +20,7 @@ def create_app(config_name='default'):
     from routes.record import record_bp
     from routes.ai_route import ai_bp
     from routes.material import material_bp
+    from routes.analytics import analytics_bp
     from routes.reminder import pending, ack, get_settings, save_settings, sweep
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -28,6 +29,7 @@ def create_app(config_name='default'):
     app.register_blueprint(record_bp, url_prefix='/api/records')
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
     app.register_blueprint(material_bp, url_prefix='/api/materials')
+    app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
 
     # 提醒路由
     from flask import Blueprint

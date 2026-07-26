@@ -81,7 +81,9 @@ mysql -uroot -p studymate < database/sql/init.sql
 ## 当前阶段
 
 - **Phase 0：项目初始化（基础架构）** —— 已完成。
-- 业务功能（用户、计划、计时、AI 等）在后续 Phase 实现，请勿在 Phase 0 提前开发。
+- **Phase 1–7：用户系统、学习计划、计时系统、资料库、提醒系统、数据分析与学习报告** —— 已实现。
+  - Phase 7 新增「数据分析」分页：ECharts 可视化（时长/完成率/科目/连续打卡/时段）+ DeepSeek/模板双轨 AI 学习报告。
+  - 详细后端接口与测试说明见 `backend/README.md` 第 7 节。
 
 ## 开发规范
 

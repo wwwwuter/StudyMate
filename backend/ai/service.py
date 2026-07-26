@@ -10,6 +10,7 @@ from ai.prompt import (
     CHAT_PROMPT,
     RAG_CHAT_PROMPT,
     PDF_TASK_EXTRACT_PROMPT,
+    LEARNING_REPORT_PROMPT,
 )
 from ai.rag import RAGService
 
@@ -60,6 +61,28 @@ class AIService:
             {'role': 'user', 'content': prompt},
         ]
         return self.client.chat(messages)
+
+    def learning_report(self, metrics: dict) -> dict:
+        """生成学习报告文字总结。
+
+        返回 {text, source}。source='ai' 表示来自 DeepSeek；
+        source='template' 表示离线模板降级（无密钥或 LEARNING_REPORT_MOCK=true）。
+        """
+        use_ai = self.client.is_available() and not os.getenv(
+            'LEARNING_REPORT_MOCK', 'false').lower() in ('1', 'true', 'yes')
+        if use_ai:
+            try:
+                metrics_json = json.dumps(metrics, ensure_ascii=False, indent=2)
+                prompt = LEARNING_REPORT_PROMPT.replace('<<<METRICS>>>', metrics_json)
+                messages = [
+                    {'role': 'system', 'content': '你是考研学习数据分析专家。'},
+                    {'role': 'user', 'content': prompt},
+                ]
+                text = self.client.chat(messages, temperature=0.6, max_tokens=1200)
+                return {'text': text, 'source': 'ai'}
+            except Exception as e:  # AI 失败兜底到模板，保证报告可用
+                logger.warning(f'学习报告 AI 生成失败，回退模板：{e}')
+        return {'text': _template_report(metrics), 'source': 'template'}
 
     def extract_tasks(self, pdf_text: str, user_id: int = 0) -> list[dict]:
         """从 PDF 提取文本中识别学习计划任务，返回结构化 list[dict]。
@@ -149,3 +172,59 @@ def _task_to_extract_dict(t) -> dict:
         'reason': '正则降级解析',
         'date_note': None,
     }
+
+
+def _fmt_dur(seconds: int) -> str:
+    seconds = int(seconds or 0)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    if h:
+        return f'{h}小时{m}分'
+    if m:
+        return f'{m}分'
+    return f'{seconds}秒'
+
+
+def _template_report(m: dict) -> str:
+    """离线模板：基于聚合指标生成确定性中文学习报告（无需调用大模型）。"""
+    total = m.get('total_hours', 0)
+    sessions = m.get('session_count', 0)
+    streak = m.get('streak', 0)
+    tasks = m.get('tasks', {}) or {}
+    done = tasks.get('done', 0)
+    total_tasks = tasks.get('total', 0)
+    rate = tasks.get('completion_rate', 0)
+    planned = tasks.get('planned_minutes', 0)
+    actual = tasks.get('actual_minutes', 0)
+
+    by_subject = m.get('by_subject_actual', {}) or {}
+    top_subject = max(by_subject, key=by_subject.get) if by_subject else None
+    top_subject_dur = _fmt_dur(by_subject.get(top_subject, 0)) if top_subject else '—'
+
+    # 计划 vs 实际差异
+    if planned and actual:
+        if actual >= planned:
+            plan_note = f'实际学习 {_fmt_dur(actual*60)}，已超过计划 {_fmt_dur(planned*60)}，执行力很强。'
+        else:
+            gap = planned - actual
+            plan_note = f'实际学习 {_fmt_dur(actual*60)}，距计划 {_fmt_dur(planned*60)} 还差 {_fmt_dur(gap*60)}，可适当提高专注度。'
+    else:
+        plan_note = '暂无任务计划时长数据，建议为任务补充预估时长以便对比。'
+
+    lines = [
+        f'【学习报告】本周期累计学习 {total} 小时，共 {sessions} 次计时会话，连续打卡 {streak} 天。',
+        f'投入最多的科目是「{top_subject}」（{top_subject_dur}），可作为当前重心。',
+        f'任务完成率 {rate}%（{done}/{total_tasks}）。{plan_note}',
+    ]
+    if rate >= 80:
+        lines.append('亮点：任务完成率很高，保持节奏即可。')
+    elif rate >= 50:
+        lines.append('建议：完成率中等，可把大任务拆小、每天固定清空几件。')
+    else:
+        lines.append('提醒：完成率偏低，优先保证「少量但完成」，建立正反馈。')
+    if streak >= 7:
+        lines.append('连续打卡已超一周，习惯正在养成，了不起！')
+    elif streak == 0:
+        lines.append('今天还没开始学习，先从 25 分钟番茄钟热个身吧。')
+    lines.append('下周建议：固定每日学习起点时段，针对薄弱科目加量，并坚持连续打卡。')
+    return '\n'.join(lines)

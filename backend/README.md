@@ -3,7 +3,7 @@
 智能考研学习助手（11408）的后端 API 服务。
 
 - **技术栈**：Python 3.13 · Flask 3 · Flask-SQLAlchemy (ORM) · Flask-Migrate (Alembic) · MySQL 8.0 · PyJWT · PyMySQL
-- **当前阶段**：Phase 3 学习计划系统（任务 CRUD / Excel·JSON 导入 / 科目归一化 / 批量创建）
+- **当前阶段**：Phase 7 数据分析与学习报告（指标聚合 + ECharts 可视化 + DeepSeek/模板 AI 总结）
 - **接口规范**：RESTful JSON API，统一响应结构 `{ code, message, data }`
 
 ---
@@ -92,6 +92,7 @@ cp .env.example .env
 | `LOGIN_QR_EXPIRE_SECONDS` | 扫码票据有效期 | `300` |
 | `QR_LOGIN_BASE_URL` | 二维码内容前缀 | `studymate://login` |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key（AI 阶段用） | 空 |
+| `LEARNING_REPORT_MOCK` | `true` 时学习报告强制走离线模板（不调用 DeepSeek，便于测试/离线） | `false` |
 
 ---
 
@@ -334,7 +335,67 @@ GET /api/tasks?date=2026-08-01&subject=数学
 
 ---
 
-## 7. 测试
+## 7. Phase 7 数据分析与学习报告
+
+### 7.1 设计说明
+- 从计时记录（`StudyRecord`）与学习计划（`StudyTask`）按时间范围聚合出「学习报告」所需的全部指标，**纯计算、不依赖 AI**，由 `services/analytics_service.build_report()` 完成。
+- AI 文字总结独立可降级：有 `DEEPSEEK_API_KEY` 时走 DeepSeek，否则（或 `LEARNING_REPORT_MOCK=true`）走确定性模板，保证报告始终可用。
+- 路由层（`routes/analytics.py`）仅做参数校验、权限（`login_required`）与响应封装；指标计算与 AI 调用解耦，便于单测。
+
+### 7.2 指标维度（覆盖：时长 / 完成率 / 科目 / 连续打卡 / 时段）
+`build_report(user_id, range_type='week', start=None, end=None)` 返回：
+
+| 字段 | 说明 |
+|---|---|
+| `range` / `start` / `end` | 生效的时间范围（day/week/month/all 或自定义 start-end） |
+| `total_seconds` / `total_hours` | 总学习时长（秒 / 小时） |
+| `session_count` | 计时会话数 |
+| `avg_session_minutes` / `daily_avg_minutes` | 平均单次时长 / 日均时长（分钟） |
+| `by_mode` | 按计时模式（pomodoro/countup/countdown）的秒数分布 |
+| `by_subject_actual` | 按科目的实际学习秒数 |
+| `by_subject_planned` | 按科目的计划分钟数（`StudyTask.estimated_minutes`） |
+| `daily` | 每日 `{date, seconds}` 序列 |
+| `hour_distribution` | 24 小时时段 `{hour, seconds}` 分布 |
+| `tasks` | `{total, done, pending, completion_rate, planned_minutes, actual_minutes}` |
+| `streak` | 连续打卡天数（以今天或昨天为终点向前数） |
+| `best_day` | 学习时长最高的一天 `{date, seconds}` |
+
+### 7.3 API 参考（`/api/analytics`，均需 `Authorization: Bearer <access_token>`）
+
+#### 聚合报告（无 AI）
+```
+GET /api/analytics/report?range=week            # 或 day / month / all
+GET /api/analytics/report?start=2026-07-01&end=2026-07-31   # 自定义区间
+→ 200 { code:200, data: { <见 7.2 指标> } }
+→ 400 { code:400, message:"非法 range，应为 day/week/month/all" }   # range 非法
+```
+
+#### 生成 AI 学习报告（生成 + 落库）
+```
+POST /api/analytics/summary
+Header: Authorization: Bearer <access_token>
+Body:   { "range": "week" }          # 可选 start / end
+→ 200 { code:200, data: {
+        "text": "<报告正文>",
+        "source": "ai" | "template",  # ai=DeepSeek 生成，template=离线模板降级
+        "analysis_id": 12,            # ai_analysis 自增主键，便于回看
+        "range": "week"
+      } }
+```
+- 落库：每次生成都会写入 `ai_analysis`（`analysis_type='learning_report'`，`input_data` 存指标 JSON，`output_data` 存正文）。
+- AI 降级开关：环境变量 `LEARNING_REPORT_MOCK=true` 强制走模板（测试 / 离线环境用）；配置了 `DEEPSEEK_API_KEY` 且开关关闭时走真实 DeepSeek，单次失败自动回退模板。
+
+### 7.4 前端
+- `desktop/vue/src/views/AnalyticsView.vue`：KPI 卡片（总时长 / 会话数 / 平均单次 / 日均 / 连续打卡 / 完成率）+ 6 张 ECharts（每日趋势、模式分布、科目实际时长、计划 vs 实际、24h 时段分布、任务完成情况）+ 「生成 AI 学习报告」区。
+- 路由 `/stats` → `AnalyticsView`，侧边栏与顶栏标题已更新为「数据分析」。
+
+### 7.5 测试
+- `tests/test_analytics.py`：SQLite 内存库 + `WECHAT_MOCK=true`，覆盖指标聚合（时长/模式/科目/时段/完成率/连续打卡）、非法 range 返回 400、自定义区间、以及 `POST /summary` 模板降级生成并落库 `ai_analysis`。
+- 运行：`python -m pytest tests/test_analytics.py -v`（4 项全过）。
+
+---
+
+## 8. 测试
 
 使用 pytest，基于 **SQLite 内存库 + `WECHAT_MOCK=true`**，不依赖本地 MySQL：
 
@@ -343,20 +404,20 @@ export FLASK_APP=app:create_app
 ../.venv/Scripts/python -m pytest tests/ -v
 ```
 
-覆盖场景：小程序 code 登录、扫码建票/确认/轮询拿令牌、票据过期、refresh 换发、`/me` 鉴权、资料更新与越权字段防护。
+覆盖场景：小程序 code 登录、扫码建票/确认/轮询拿令牌、票据过期、refresh 换发、`/me` 鉴权、资料更新与越权字段防护、计时统计、资料库 CRUD、提醒设置，以及 Phase 7 学习报告聚合与 AI 总结落库。
 
 ---
 
-## 8. 后续阶段
+## 9. 后续阶段
 
-- **Phase 3 已完成**：学习计划 CRUD、批量创建、Excel/JSON 导入、科目归一化。
-- **待做**：每日任务自动生成、桌面提醒、番茄钟/计时、学习数据统计可视化、AI 总结与计划优化（DeepSeek）、PDF 导入（需安装 `pdfminer.six`）。
+- **Phase 7 已完成**：学习数据指标聚合、ECharts 可视化、DeepSeek/模板双轨 AI 学习报告。
+- **待做**：每日任务自动生成、每任务自定义提醒、桌面原生提醒推送、真实 OCR 与 RAG 向量检索、Redis 令牌黑名单、软删除回收站。
 - **Redis**：缓存与 JWT 黑名单（支持服务端主动失效令牌）。
 - **生产部署**：修改 `JWT_SECRET`、配置真实 `WECHAT_APP_ID/SECRET`、关闭 `WECHAT_MOCK`、使用环境变量注入数据库凭证。
 
 ---
 
-## 9. 常见问题
+## 10. 常见问题
 
 - **启动报 `ModuleNotFoundError: pdfminer / openpyxl / openai`**：这些是后续阶段的重依赖，已在导入处改为延迟导入，启动后端不依赖它们。需要对应功能时再 `pip install -r requirements.txt` 补齐。
 - **迁移报 `Cannot drop index` / 表已存在**：早期残留表结构与当前模型不一致，清空 `studymate` 库重新 `flask db upgrade` 即可（开发环境无业务数据）。
