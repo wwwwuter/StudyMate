@@ -43,6 +43,7 @@ mysql_data/
 
 # Build
 desktop/release/
+desktop/electron/release/
 backend/build/
 
 # 运行时数据（RAG 向量索引等，含隐私，禁止入库）

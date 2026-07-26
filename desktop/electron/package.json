@@ -1,11 +1,20 @@
 {
   "name": "studymate-electron",
   "version": "1.0.0",
-  "description": "StudyMate Electron 主进程",
+  "description": "StudyMate 桌面端（Electron 外壳，打包 Vue 前端 SPA；后端单独运行/部署）",
   "main": "main.js",
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"cd ../vue && npm run dev\" \"wait-on http://localhost:5173 && electron .\""
+    "dev": "concurrently \"cd ../vue && npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "build:vue": "cd ../vue && npm run build",
+    "dist": "npm run build:vue && electron-builder --win --config",
+    "release": "npm run build:vue && electron-builder --win --publish=always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
@@ -13,8 +22,41 @@
     "electron-builder": "^24.13.3",
     "wait-on": "^7.2.0"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OWNER/REPO.git"
+  },
+  "build": {
+    "appId": "com.studymate.desktop",
+    "productName": "StudyMate",
+    "copyright": "Copyright © 2026 StudyMate",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "../vue/dist/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false,
+      "artifactName": "StudyMate-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "OWNER",
+        "repo": "REPO"
+      }
+    ]
+  }
 }

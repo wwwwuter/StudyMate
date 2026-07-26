@@ -4,6 +4,8 @@ import { fileURLToPath, URL } from 'node:url'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // 生产打包进 Electron 时用相对路径，确保 file:///asar 下资源可加载
+  base: './',
   plugins: [vue()],
   resolve: {
     alias: {
