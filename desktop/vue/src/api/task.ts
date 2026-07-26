@@ -63,5 +63,15 @@ export const importTasks = (type: 'excel' | 'json' | 'pdf', file: File, fileName
     .then((r) => r.data)
 }
 
+export const importPdfAi = (file: File, fileName: string) => {
+  const form = new FormData()
+  form.append('file', file, fileName)
+  return request
+    .post('/tasks/import/pdf/ai', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    .then((r) => r.data)
+}
+
 export const dailyStats = (date: string) =>
   request.get('/tasks/stats/daily', { params: { date } }).then((r) => r.data.data as DailyStats)

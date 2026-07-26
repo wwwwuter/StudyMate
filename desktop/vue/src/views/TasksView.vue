@@ -71,6 +71,7 @@
               <el-dropdown-item command="excel">从 Excel 导入 (.xlsx)</el-dropdown-item>
               <el-dropdown-item command="json">从 JSON 导入</el-dropdown-item>
               <el-dropdown-item command="pdf">从 PDF 导入</el-dropdown-item>
+              <el-dropdown-item command="pdf-ai">从 PDF 智能导入（AI）</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -195,7 +196,7 @@
         <div class="el-upload__text">将文件拖到此处，或<em>点击选择</em></div>
         <template #tip>
           <div class="el-upload__tip">
-            {{ importType === 'excel' ? '支持 .xlsx（旧版 .xls 暂需转换）' : importType === 'json' ? '支持 JSON 数组或 { tasks: [...] }' : '从 PDF 中提取「日期 科目 内容 时间范围」行' }}
+            {{ importType === 'excel' ? '支持 .xlsx（旧版 .xls 暂需转换）' : importType === 'json' ? '支持 JSON 数组或 { tasks: [...] }' : importType === 'pdf-ai' ? 'AI 自动识别任务（日期/科目/内容/时段），需后端配置 DeepSeek 或开启 PDF_AI_MOCK' : '从 PDF 中提取「日期 科目 内容 时间范围」行' }}
           </div>
         </template>
       </el-upload>
@@ -215,7 +216,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import {
-  listTasks, createTask, updateTask, deleteTask, batchCreate, importTasks, dailyStats,
+  listTasks, createTask, updateTask, deleteTask, batchCreate, importTasks, importPdfAi, dailyStats,
   type TaskItem, type DailyStats,
 } from '@/api/task'
 
@@ -238,7 +239,7 @@ function subjectTagStyle(subject?: string): Record<string, string> {
   return { background: `${color}1A`, color, borderColor: `${color}55` }
 }
 function sourceLabel(src?: string): string {
-  return ({ manual: '手动', excel: 'Excel', json: 'JSON', pdf: 'PDF', auto: '自动' } as Record<string, string>)[src || ''] || src || '手动'
+  return ({ manual: '手动', excel: 'Excel', json: 'JSON', pdf: 'PDF', 'pdf-ai': 'PDF·AI', auto: '自动' } as Record<string, string>)[src || ''] || src || '手动'
 }
 
 // ---- 状态 ----
@@ -439,9 +440,9 @@ async function submitBatch() {
 
 // ---- 导入 ----
 const importVisible = ref(false)
-const importType = ref<'excel' | 'json' | 'pdf'>('excel')
+const importType = ref<'excel' | 'json' | 'pdf' | 'pdf-ai'>('excel')
 const importFile = ref<File | null>(null)
-function openImportType(type: 'excel' | 'json' | 'pdf') {
+function openImportType(type: 'excel' | 'json' | 'pdf' | 'pdf-ai') {
   importType.value = type
   importFile.value = null
   importVisible.value = true
@@ -453,7 +454,10 @@ async function submitImport() {
   if (!importFile.value) return
   submitting.value = true
   try {
-    const res = await importTasks(importType.value, importFile.value, importFile.value.name)
+    const file = importFile.value
+    const res = importType.value === 'pdf-ai'
+      ? await importPdfAi(file, file.name)
+      : await importTasks(importType.value, file, file.name)
     ElMessage.success(res.message || '导入成功')
     importVisible.value = false
     await loadTasks()
