@@ -65,13 +65,18 @@ def _build_task(user_id, data, source):
     if not StudyTask.is_valid_status(status):
         raise ValueError(f'非法 status: {status}')
 
+    start_time = _parse_time(data.get('start_time'))
+    end_time = _parse_time(data.get('end_time'))
+    if start_time and end_time and start_time > end_time:
+        raise ValueError('结束时间不能早于开始时间')
+
     return StudyTask(
         user_id=user_id,
         date=task_date,
         subject=subject,
         content=content,
-        start_time=_parse_time(data.get('start_time')),
-        end_time=_parse_time(data.get('end_time')),
+        start_time=start_time,
+        end_time=end_time,
         status=status,
         plan_source=data.get('plan_source', source),
     )
@@ -127,8 +132,18 @@ def list_tasks(user_id, filters=None):
         like = f"%{filters['keyword']}%"
         query = query.filter(StudyTask.content.like(like))
 
-    return query.order_by(StudyTask.date, StudyTask.start_time).all()
+    query = query.order_by(StudyTask.date, StudyTask.start_time)
 
+    # 分页：同时提供 page 与 page_size 时返回 (items, total)
+    page = filters.get('page')
+    page_size = filters.get('page_size')
+    if isinstance(page, int) and isinstance(page_size, int) and page >= 1 and page_size >= 1:
+        total = query.count()
+        items = query.offset((page - 1) * page_size).limit(page_size).all()
+        return items, total
+
+    items = query.all()
+    return items, len(items)
 
 def update_task(user_id, task_id, data):
     task = get_task(user_id, task_id)
@@ -154,6 +169,8 @@ def update_task(user_id, task_id, data):
         task.start_time = _parse_time(data['start_time'])
     if 'end_time' in data:
         task.end_time = _parse_time(data['end_time'])
+    if task.start_time and task.end_time and task.start_time > task.end_time:
+        raise ValueError('结束时间不能早于开始时间')
     if 'status' in data:
         if not StudyTask.is_valid_status(data['status']):
             raise ValueError(f'非法 status: {data["status"]}')
@@ -174,15 +191,28 @@ def delete_task(user_id, task_id):
 
 # ------------------------- 导入 -------------------------
 def _persist_imported(user_id, tasks):
-    """将解析器产出的对象落库，校正 user_id 与非法状态。"""
+    """将解析器产出的对象落库，校正 user_id 与非法状态。
+
+    去重（幂等）：同一用户下已存在 (date, subject, content, start_time)
+    完全相同的任务则跳过，避免重复导入产生重复行。
+    """
+    existing = {
+        (t.date, t.subject, t.content, t.start_time)
+        for t in StudyTask.query.filter_by(user_id=user_id).all()
+    }
     valid = []
     for t in tasks:
         t.user_id = user_id
         if not StudyTask.is_valid_status(t.status):
             t.status = StudyTask.STATUS_PENDING
+        key = (t.date, t.subject, t.content, t.start_time)
+        if key in existing:
+            continue
+        existing.add(key)
         valid.append(t)
-    db.session.add_all(valid)
-    db.session.commit()
+    if valid:
+        db.session.add_all(valid)
+        db.session.commit()
     return valid
 
 
@@ -197,5 +227,8 @@ def import_from_json(user_id, file_storage):
 
 
 def import_from_pdf(user_id, file_storage):
-    from parser.pdf_parser import parse_pdf_tasks
+    try:
+        from parser.pdf_parser import parse_pdf_tasks
+    except ImportError:
+        raise ValueError('PDF 解析依赖未安装，请先 pip install pdfminer.six')
     return _persist_imported(user_id, parse_pdf_tasks(file_storage, user_id))

@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+import os
 
 from utils.jwt_utils import login_required
 from services.plan_service import (
@@ -19,9 +20,10 @@ task_bp = Blueprint('task', __name__)
 @task_bp.route('', methods=['GET'])
 @login_required
 def get_tasks(current_user):
-    """列出学习任务，支持过滤。
+    """列出学习任务，支持过滤与分页。
 
     查询参数：date / start_date / end_date / subject / status / keyword
+              page / page_size（同时提供时启用分页）
     """
     raw = {
         'date': request.args.get('date'),
@@ -32,8 +34,20 @@ def get_tasks(current_user):
         'keyword': request.args.get('keyword'),
     }
     filters = {k: v for k, v in raw.items() if v}
-    tasks = list_tasks(current_user.id, filters)
-    return jsonify({'code': 200, 'data': [t.to_dict() for t in tasks]})
+    try:
+        if request.args.get('page'):
+            filters['page'] = int(request.args.get('page'))
+        if request.args.get('page_size'):
+            filters['page_size'] = int(request.args.get('page_size'))
+    except (TypeError, ValueError):
+        pass
+
+    items, total = list_tasks(current_user.id, filters)
+    payload = {'code': 200, 'data': [t.to_dict() for t in items], 'total': total}
+    if 'page' in filters and 'page_size' in filters:
+        payload['page'] = filters['page']
+        payload['page_size'] = filters['page_size']
+    return jsonify(payload)
 
 
 @task_bp.route('', methods=['POST'])
@@ -100,11 +114,16 @@ def delete(current_user, task_id):
 @task_bp.route('/import/excel', methods=['POST'])
 @login_required
 def import_excel(current_user):
-    """从 Excel 导入复习计划。"""
+    """从 Excel 导入复习计划（支持 .xlsx / .xlsm / .xls）。"""
     if 'file' not in request.files:
         return jsonify({'code': 400, 'message': '请上传文件'}), 400
+    file_storage = request.files['file']
+    filename = getattr(file_storage, 'filename', '') or ''
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ('.xlsx', '.xlsm', '.xls'):
+        return jsonify({'code': 400, 'message': '仅支持 .xlsx / .xlsm / .xls 文件'}), 400
     try:
-        tasks = import_from_excel(current_user.id, request.files['file'])
+        tasks = import_from_excel(current_user.id, file_storage)
     except Exception as e:
         return jsonify({'code': 500, 'message': f'导入失败: {e}'}), 500
     return jsonify({
@@ -117,11 +136,16 @@ def import_excel(current_user):
 @task_bp.route('/import/json', methods=['POST'])
 @login_required
 def import_json(current_user):
-    """从 JSON 导入复习计划。"""
+    """从 JSON 导入复习计划（支持数组或 { "tasks": [...] }）。"""
     if 'file' not in request.files:
         return jsonify({'code': 400, 'message': '请上传文件'}), 400
+    file_storage = request.files['file']
+    filename = getattr(file_storage, 'filename', '') or ''
+    ext = os.path.splitext(filename)[1].lower()
+    if ext and ext != '.json':
+        return jsonify({'code': 400, 'message': '仅支持 .json 文件'}), 400
     try:
-        tasks = import_from_json(current_user.id, request.files['file'])
+        tasks = import_from_json(current_user.id, file_storage)
     except Exception as e:
         return jsonify({'code': 500, 'message': f'导入失败: {e}'}), 500
     return jsonify({
@@ -161,9 +185,9 @@ def daily_stats(current_user):
     except ValueError:
         return jsonify({'code': 400, 'message': '日期格式错误'}), 400
 
-    tasks = list_tasks(current_user.id, {'date': date_str})
-    total = len(tasks)
-    done = sum(1 for t in tasks if t.status == StudyTask.STATUS_DONE)
+    items, _ = list_tasks(current_user.id, {'date': date_str})
+    total = len(items)
+    done = sum(1 for t in items if t.status == 'done')
 
     return jsonify({
         'code': 200,
@@ -172,6 +196,6 @@ def daily_stats(current_user):
             'total': total,
             'done': done,
             'completion_rate': round(done / total * 100, 1) if total > 0 else 0,
-            'subjects': sorted(set(t.subject for t in tasks)),
+            'subjects': sorted(set(t.subject for t in items)),
         },
     })
