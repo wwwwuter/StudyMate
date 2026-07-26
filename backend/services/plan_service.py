@@ -8,6 +8,7 @@ from datetime import datetime, date, time
 from app.extensions import db
 from models.task import StudyTask
 from utils.subject_utils import normalize_subject
+from parser import pdf_parser
 
 
 # ------------------------- 解析辅助 -------------------------
@@ -232,3 +233,25 @@ def import_from_pdf(user_id, file_storage):
     except ImportError:
         raise ValueError('PDF 解析依赖未安装，请先 pip install pdfminer.six')
     return _persist_imported(user_id, parse_pdf_tasks(file_storage, user_id))
+
+
+def import_from_pdf_ai(user_id, file_storage):
+    """智能解析：提取 PDF 文本 → AI 识别任务 → 逐条校验 → 去重落库。
+
+    返回 (persisted_tasks, skipped_count)，skipped 为被校验规则拒绝的无效条目数。
+    AI 层在无密钥且未开启 PDF_AI_MOCK 时会抛出 ValueError，由路由转成明确错误。
+    """
+    text = pdf_parser.extract_pdf_text(file_storage)
+    from ai.service import AIService
+    items = AIService().extract_tasks(text, user_id)
+
+    valid = []
+    skipped = 0
+    for item in items:
+        try:
+            valid.append(_build_task(user_id, item, StudyTask.SOURCE_PDF))
+        except ValueError:
+            skipped += 1
+
+    persisted = _persist_imported(user_id, valid)
+    return persisted, skipped

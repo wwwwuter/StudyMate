@@ -5,21 +5,20 @@ from models.task import StudyTask
 from utils.subject_utils import normalize_subject
 
 
-def parse_pdf_tasks(file, user_id):
-    """解析 PDF 文件中的学习计划。
-
-    支持两类行：
-      1) 带时间段：「2026-07-20 数学 高数强化 08:30-11:30」
-      2) 仅日期+科目+内容：「2026-07-20 英语 单词背诵」（无时间段也保留，时间置空）
-
-    科目经 normalize_subject 归一化（高数→数学 等）；非法/缺日期或内容的行跳过。
-    """
-    # 延迟导入：pdfminer 属后续阶段解析依赖，避免在应用启动时强制安装
+def extract_pdf_text(file):
+    """从 PDF 文件中提取纯文本（延迟导入 pdfminer，避免应用启动强依赖）。"""
     from pdfminer.high_level import extract_text
+    return extract_text(file)
 
-    # 提取文本
-    text = extract_text(file)
 
+def parse_pdf_tasks(file, user_id):
+    """解析 PDF 文件中的学习计划（基于提取文本做正则识别）。"""
+    text = extract_pdf_text(file)
+    return _parse_pdf_text(text, user_id)
+
+
+def _parse_pdf_text(text, user_id):
+    """从文本中按行正则识别「日期 科目 内容 [时间范围]」结构的任务。"""
     tasks = []
     lines = text.split('\n')
 

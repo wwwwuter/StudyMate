@@ -12,6 +12,7 @@ from services.plan_service import (
     import_from_excel,
     import_from_json,
     import_from_pdf,
+    import_from_pdf_ai,
 )
 
 task_bp = Blueprint('task', __name__)
@@ -169,6 +170,30 @@ def import_pdf(current_user):
         'code': 200,
         'message': f'成功导入 {len(tasks)} 条',
         'data': {'count': len(tasks), 'tasks': [t.to_dict() for t in tasks]},
+    })
+
+
+@task_bp.route('/import/pdf/ai', methods=['POST'])
+@login_required
+def import_pdf_ai(current_user):
+    """从 PDF 智能解析学习任务（AI 识别，需 DEEPSEEK_API_KEY 或开启 PDF_AI_MOCK）。"""
+    if 'file' not in request.files:
+        return jsonify({'code': 400, 'message': '请上传文件'}), 400
+    file_storage = request.files['file']
+    filename = getattr(file_storage, 'filename', '') or ''
+    ext = os.path.splitext(filename)[1].lower()
+    if ext and ext != '.pdf':
+        return jsonify({'code': 400, 'message': '仅支持 .pdf 文件'}), 400
+    try:
+        tasks, skipped = import_from_pdf_ai(current_user.id, file_storage)
+    except ValueError as e:
+        return jsonify({'code': 400, 'message': str(e)}), 400
+    except Exception as e:
+        return jsonify({'code': 500, 'message': f'AI 解析失败: {e}'}), 500
+    return jsonify({
+        'code': 200,
+        'message': f'智能解析导入 {len(tasks)} 条（跳过 {skipped} 条无效）',
+        'data': {'count': len(tasks), 'skipped': skipped, 'tasks': [t.to_dict() for t in tasks]},
     })
 
 

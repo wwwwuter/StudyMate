@@ -37,6 +37,8 @@ class Config:
     # ---- DeepSeek AI（后续阶段实现）----
     DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
     DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
+    # PDF 智能解析降级开关：无密钥时置 true 可走正则解析（离线 / CI 可用）
+    PDF_AI_MOCK = os.getenv('PDF_AI_MOCK', 'false').lower() in ('1', 'true', 'yes')
 
     # ---- 微信小程序（预留）----
     WECHAT_APP_ID = os.getenv('WECHAT_APP_ID', '')
