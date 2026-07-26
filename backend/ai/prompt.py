@@ -1,5 +1,8 @@
 # DeepSeek 提示词模板
-
+#
+# 约定：变量统一用哨兵占位符 <<<VAR>>>，渲染时用 PromptManager.render 替换，
+# 避免使用 .format() 导致 JSON 大括号 / 未转义花括号触发 KeyError。
+# 这些内置常量作为兜底（当 prompts/ 目录下缺少对应 .txt 文件时使用）。
 
 DAILY_SUMMARY_PROMPT = """你是一个考研学习助手。请根据以下学习数据，生成一份简洁的每日学习总结。
 
@@ -9,7 +12,7 @@ DAILY_SUMMARY_PROMPT = """你是一个考研学习助手。请根据以下学习
 3. 改进建议：给出具体的改进建议
 
 学习数据：
-{input_data}
+<<<INPUT_DATA>>>
 
 请以以下格式回复：
 ## 今日完成情况
@@ -31,7 +34,7 @@ PLAN_OPTIMIZE_PROMPT = """你是一个考研学习规划专家。请根据最近
 3. 具体的调整建议
 
 学习数据：
-{input_data}
+<<<INPUT_DATA>>>
 
 请以以下格式回复：
 ## 学习情况分析
@@ -55,17 +58,17 @@ CHAT_PROMPT = """你是 StudyMate AI 学习助手，专为考研 11408 学生提
 
 请用友好、鼓励的语气回复。
 
-用户问题：{message}
+用户问题：<<<MESSAGE>>>
 """
 
 
 RAG_CHAT_PROMPT = """你是 StudyMate AI 学习助手。以下是根据用户上传的学习资料检索到的相关内容：
 
-{context}
+<<<CONTEXT>>>
 
 请基于以上资料回答用户的问题。如果资料中找不到相关信息，可以结合你的知识回答，但请说明这是基于通用知识而非用户资料。
 
-用户问题：{question}
+用户问题：<<<QUESTION>>>
 """
 
 
@@ -82,6 +85,7 @@ LEARNING_REPORT_PROMPT = """你是考研学习数据分析专家。下面是一�
 学习数据（JSON）：
 <<<METRICS>>>
 """
+
 
 PDF_TASK_EXTRACT_PROMPT = """请从以下从 PDF 学习计划文档中提取的纯文本中，识别所有「学习任务」，并提取为结构化 JSON。
 

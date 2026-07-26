@@ -3,7 +3,7 @@
 智能考研学习助手（11408）的后端 API 服务。
 
 - **技术栈**：Python 3.13 · Flask 3 · Flask-SQLAlchemy (ORM) · Flask-Migrate (Alembic) · MySQL 8.0 · PyJWT · PyMySQL
-- **当前阶段**：Phase 7 数据分析与学习报告（指标聚合 + ECharts 可视化 + DeepSeek/模板 AI 总结）
+- **当前阶段**：Phase 8 DeepSeek + RAG 知识库（API 调用加固 / 文件化 Prompt 管理 / 向量 RAG 问答）
 - **接口规范**：RESTful JSON API，统一响应结构 `{ code, message, data }`
 
 ---
@@ -395,7 +395,64 @@ Body:   { "range": "week" }          # 可选 start / end
 
 ---
 
-## 8. 测试
+## 8. Phase 8 DeepSeek + RAG 知识库
+
+### 8.1 三大交付物
+
+1. **API 调用（加固）** — `ai/deepseek_client.py`
+   - 支持 env 配置：`DEEPSEEK_API_KEY` / `DEEPSEEK_API_BASE` / `DEEPSEEK_MODEL` / `DEEPSEEK_TIMEOUT` / `DEEPSEEK_MAX_RETRIES`。
+   - 对瞬时错误（超时 / 429 限流 / 5xx）做指数退避重试（上限 30s），认证错误（401）立即抛出不重试。
+   - 错误分类为 `DeepSeekAuthError` / `DeepSeekRateLimitError` / `DeepSeekTransientError` / `DeepSeekAPIError`，便于上层精确处理。
+   - 延迟加载 openai、支持注入 client（测试用），`is_available()` 判断 Key 是否就绪。
+
+2. **Prompt 管理（文件化）** — `ai/prompt_manager.py` + `prompts/*.txt`
+   - 提示词外置到 `backend/prompts/*.txt`，首行 `# desc:` 为元信息描述；代码经 `PromptManager` 加载/渲染，**文件优先、缺文件回退 `ai/prompt.py` 内置常量**。
+   - 渲染统一用 `<<<VAR>>>` 哨兵替换，避免 JSON 大括号触发 `.format` 的 `KeyError`（沿用 Phase 4 修复思路）。
+   - `PromptManager.list_prompts()` 暴露全部可用提示词（key / 描述 / 预览），便于后续做管理界面。
+
+3. **RAG 知识库（向量化）** — `ai/rag.py`
+   - 向量化默认用本地 `sentence-transformers`（模型名 `RAG_EMBEDDING_MODEL`，默认中文向量模型 `shibing624/text2vec-base-chinese`），**首次使用自动下载、离线可用**；加载失败自动回退关键词检索。
+   - 中文感知分块（按段落 + 滑动窗口 + 重叠），注入 embedder 可绕过 torch 做测试。
+   - 每用户：内存缓存 + 磁盘持久化（`data/rag/{user_id}.index` + `.meta.json`，FAISS 优先、不可用时存 numpy `.npy`）。
+   - `retrieve(user_id, query)` 返回 `[{material_id, title, score, snippet, content}]`；`rebuild` / `invalidate` 管理索引；资料上传/删除时路由自动 `invalidate`，下次查询懒重建。
+
+### 8.2 API 参考（`/api/rag`，均需 `Authorization: Bearer <access_token>`）
+
+```
+POST /api/rag/query            # 基于资料库的 RAG 问答
+Body:   { "question": "特征值与特征向量？", "top_k": 4 }   # top_k 可选
+→ 200 { code:200, data: {
+      "answer": "<回答正文>",
+      "sources": [ {material_id, title, score, snippet, content}, ... ],
+      "source": "ai" | "retrieval" | "empty"
+        # ai=DeepSeek 生成；retrieval=未连 AI 仅返回检索片段；empty=无相关资料
+    } }
+
+POST /api/rag/index            # 重建当前用户索引（通常无需手动，上传/删除资料自动失效）
+→ 200 { code:200, data: { chunk_count, mode } }
+
+GET  /api/rag/status           # 索引状态
+→ 200 { code:200, data: { indexed, chunk_count, mode, model, vector_available } }
+```
+
+- RAG 问答编排在 `ai/service.py` 的 `AIService.rag_answer()`：先向量检索资料 → 渲染 `rag_chat` 提示词（检索上下文 + 问题）→ 调用 DeepSeek；无 Key 或 AI 失败时回退返回检索片段文本。
+- `routes/material.py` 的上传/删除接口在提交后调用 `rag_service.invalidate(user_id)`，保证索引最终一致。
+- `routes/material.py` 的 `/match`（轻量关键词匹配）保留原行为，不触发向量模型下载。
+
+### 8.3 前端
+- `desktop/vue/src/api/rag.ts`：`ragQuery` / `ragIndex` / `ragStatus`。
+- `desktop/vue/src/views/RagView.vue`：类聊天界面（提问框 + 回答气泡 + 来源资料卡片 + 来源标签 DeepSeek/检索/无资料 + 「重建索引」按钮 + 索引状态），`/ai` 路由指向该视图，侧边栏与顶栏标题为「AI 知识库」。
+
+### 8.4 测试
+- `tests/test_prompt_manager.py`：哨兵渲染、缺失变量保留哨兵、`list_prompts` 覆盖全部 key。
+- `tests/test_deepseek_client.py`：无 Key 报错、重试后成功、认证错误不重试、瞬时错误重试后失败、可用性判断。
+- `tests/test_rag.py`：注入确定性 embedder 验证向量检索命中、磁盘持久化 + 重载、关键词兜底、失效清理。
+- `tests/test_ai.py`：AIService 的 RAG 问答 ai/retrieval 双路径、`learning_report` 模板降级、以及 `/api/rag/query` 路由（含缺参 400）。
+- 运行：`python -m pytest tests/test_prompt_manager.py tests/test_deepseek_client.py tests/test_rag.py tests/test_ai.py -v`（共 21 项全过）。
+
+---
+
+## 9. 测试
 
 使用 pytest，基于 **SQLite 内存库 + `WECHAT_MOCK=true`**，不依赖本地 MySQL：
 
@@ -408,7 +465,7 @@ export FLASK_APP=app:create_app
 
 ---
 
-## 9. 后续阶段
+## 10. 后续阶段
 
 - **Phase 7 已完成**：学习数据指标聚合、ECharts 可视化、DeepSeek/模板双轨 AI 学习报告。
 - **待做**：每日任务自动生成、每任务自定义提醒、桌面原生提醒推送、真实 OCR 与 RAG 向量检索、Redis 令牌黑名单、软删除回收站。
@@ -417,7 +474,7 @@ export FLASK_APP=app:create_app
 
 ---
 
-## 10. 常见问题
+## 11. 常见问题
 
 - **启动报 `ModuleNotFoundError: pdfminer / openpyxl / openai`**：这些是后续阶段的重依赖，已在导入处改为延迟导入，启动后端不依赖它们。需要对应功能时再 `pip install -r requirements.txt` 补齐。
 - **迁移报 `Cannot drop index` / 表已存在**：早期残留表结构与当前模型不一致，清空 `studymate` 库重新 `flask db upgrade` 即可（开发环境无业务数据）。

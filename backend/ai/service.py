@@ -4,29 +4,26 @@ import json
 import re
 
 from ai.deepseek_client import DeepSeekClient
-from ai.prompt import (
-    DAILY_SUMMARY_PROMPT,
-    PLAN_OPTIMIZE_PROMPT,
-    CHAT_PROMPT,
-    RAG_CHAT_PROMPT,
-    PDF_TASK_EXTRACT_PROMPT,
-    LEARNING_REPORT_PROMPT,
-)
+from ai.prompt_manager import PromptManager
 from ai.rag import RAGService
 
 logger = logging.getLogger(__name__)
 
 
 class AIService:
-    """AI 服务层"""
+    """AI 服务层（Phase 8：统一用 PromptManager 渲染，RAG 走向量检索）。
 
-    def __init__(self):
-        self.client = DeepSeekClient()
-        self.rag = RAGService()
+    支持依赖注入（client / rag / prompts），便于测试用假对象替换。
+    """
 
+    def __init__(self, client=None, rag=None, prompts=None):
+        self.client = client or DeepSeekClient()
+        self.rag = rag or RAGService()
+        self.prompts = prompts or PromptManager()
+
+    # --------------------------- 通用对话 / 总结 / 优化 ---------------------------
     def daily_summary(self, input_data: str) -> str:
-        """每日学习总结"""
-        prompt = DAILY_SUMMARY_PROMPT.format(input_data=input_data)
+        prompt = self.prompts.render('daily_summary', INPUT_DATA=input_data)
         messages = [
             {'role': 'system', 'content': '你是一个专业的考研学习助手。'},
             {'role': 'user', 'content': prompt},
@@ -34,8 +31,7 @@ class AIService:
         return self.client.chat(messages)
 
     def plan_optimize(self, input_data: str) -> str:
-        """学习计划优化"""
-        prompt = PLAN_OPTIMIZE_PROMPT.format(input_data=input_data)
+        prompt = self.prompts.render('plan_optimize', INPUT_DATA=input_data)
         messages = [
             {'role': 'system', 'content': '你是一个专业的考研学习规划专家。'},
             {'role': 'user', 'content': prompt},
@@ -43,25 +39,48 @@ class AIService:
         return self.client.chat(messages)
 
     def chat(self, message: str) -> str:
-        """AI 对话"""
+        prompt = self.prompts.render('chat', MESSAGE=message)
         messages = [
             {'role': 'system', 'content': '你是一个专业的考研学习助手。'},
-            {'role': 'user', 'content': CHAT_PROMPT.format(message=message)},
-        ]
-        return self.client.chat(messages)
-
-    def chat_with_rag(self, question: str) -> str:
-        """基于 RAG 知识库的对话"""
-        context_docs = self.rag.search(question)
-        context = '\n\n'.join(context_docs) if context_docs else '未找到相关学习资料。'
-
-        prompt = RAG_CHAT_PROMPT.format(context=context, question=question)
-        messages = [
-            {'role': 'system', 'content': '你是一个基于学习资料的专业考研学习助手。'},
             {'role': 'user', 'content': prompt},
         ]
         return self.client.chat(messages)
 
+    # --------------------------- RAG 问答 ---------------------------
+    def rag_answer(self, user_id, question: str, top_k: int = None) -> dict:
+        """基于用户资料库的 RAG 问答。
+
+        返回 {answer, sources, source}。source='ai'（DeepSeek 生成）/
+        'retrieval'（无密钥，仅返回检索片段）/ 'empty'（无资料）。
+        """
+        sources = self.rag.retrieve(user_id, question, top_k=top_k)
+        context = '\n\n'.join(
+            f"【{s['title']}】\n{s['content']}" for s in sources
+        ) if sources else '未找到相关学习资料。'
+
+        prompt = self.prompts.render('rag_chat', CONTEXT=context, QUESTION=question)
+
+        if self.client.is_available():
+            try:
+                messages = [
+                    {'role': 'system', 'content': '你是基于学习资料的专业考研学习助手。'},
+                    {'role': 'user', 'content': prompt},
+                ]
+                answer = self.client.chat(messages, temperature=0.5, max_tokens=1500)
+                return {'answer': answer, 'sources': sources, 'source': 'ai'}
+            except Exception as e:
+                logger.warning(f'RAG AI 生成失败，回退检索结果：{e}')
+
+        # 无密钥或 AI 失败：返回检索片段作为答案
+        if sources:
+            answer = '（未连接 AI，以下为检索到的相关资料）\n\n' + '\n\n'.join(
+                f"【{s['title']}】{s['content']}" for s in sources
+            )
+            return {'answer': answer, 'sources': sources, 'source': 'retrieval'}
+
+        return {'answer': '未找到相关资料，请先上传学习资料。', 'sources': [], 'source': 'empty'}
+
+    # --------------------------- 学习报告（指标 -> 文字）---------------------------
     def learning_report(self, metrics: dict) -> dict:
         """生成学习报告文字总结。
 
@@ -73,7 +92,7 @@ class AIService:
         if use_ai:
             try:
                 metrics_json = json.dumps(metrics, ensure_ascii=False, indent=2)
-                prompt = LEARNING_REPORT_PROMPT.replace('<<<METRICS>>>', metrics_json)
+                prompt = self.prompts.render('learning_report', METRICS=metrics_json)
                 messages = [
                     {'role': 'system', 'content': '你是考研学习数据分析专家。'},
                     {'role': 'user', 'content': prompt},
@@ -84,16 +103,16 @@ class AIService:
                 logger.warning(f'学习报告 AI 生成失败，回退模板：{e}')
         return {'text': _template_report(metrics), 'source': 'template'}
 
+    # --------------------------- PDF 任务提取 ---------------------------
     def extract_tasks(self, pdf_text: str, user_id: int = 0) -> list[dict]:
         """从 PDF 提取文本中识别学习计划任务，返回结构化 list[dict]。
 
-        每条：{date, subject, content, start_time, end_time, status}。
         - 配置了 DEEPSEEK_API_KEY：调用 DeepSeek 做智能识别。
         - 未配置但开启 PDF_AI_MOCK：用正则解析作为降级（离线 / CI 可用）。
         - 两者皆无：抛出 ValueError，由路由返回明确错误。
         """
         if self.client.is_available():
-            prompt = PDF_TASK_EXTRACT_PROMPT.replace('<<<TEXT>>>', pdf_text)
+            prompt = self.prompts.render('pdf_task_extract', TEXT=pdf_text)
             messages = [
                 {'role': 'system', 'content': '你是考研学习计划结构化提取助手，只输出 JSON。'},
                 {'role': 'user', 'content': prompt},
@@ -201,7 +220,6 @@ def _template_report(m: dict) -> str:
     top_subject = max(by_subject, key=by_subject.get) if by_subject else None
     top_subject_dur = _fmt_dur(by_subject.get(top_subject, 0)) if top_subject else '—'
 
-    # 计划 vs 实际差异
     if planned and actual:
         if actual >= planned:
             plan_note = f'实际学习 {_fmt_dur(actual*60)}，已超过计划 {_fmt_dur(planned*60)}，执行力很强。'

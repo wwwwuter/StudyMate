@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify
 from models.material import Material
 from app.extensions import db
 from utils.jwt_utils import login_required
-from ai.rag import RAGService
+from ai import rag_service
 
 material_bp = Blueprint('material', __name__)
 
@@ -50,6 +50,8 @@ def upload_material(current_user):
     )
     db.session.add(mat)
     db.session.commit()
+    # 资料变更：使该用户 RAG 索引失效，下次查询自动基于最新资料重建
+    rag_service.invalidate(current_user.id)
     return jsonify({'code': 200, 'message': '资料已保存', 'data': mat.to_dict()}), 201
 
 
@@ -70,6 +72,7 @@ def delete_material(current_user, material_id):
         return jsonify({'code': 404, 'message': '资料不存在'}), 404
     db.session.delete(mat)
     db.session.commit()
+    rag_service.invalidate(current_user.id)
     return jsonify({'code': 200, 'message': '已删除'})
 
 
@@ -83,5 +86,6 @@ def match_material(current_user):
         return jsonify({'code': 400, 'message': '请提供 query 或 content'}), 400
 
     mats = Material.query.filter_by(user_id=current_user.id).all()
-    results = RAGService.keyword_retrieve(query, mats, top_k=int(data.get('top_k', 3)))
+    # 轻量关键词匹配（不触发向量模型下载）；需要语义检索请用 /api/rag/query
+    results = rag_service.keyword_retrieve(query, mats, top_k=int(data.get('top_k', 3)))
     return jsonify({'code': 200, 'data': results})

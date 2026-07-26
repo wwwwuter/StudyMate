@@ -35,7 +35,7 @@
         </el-menu-item>
         <el-menu-item index="/ai">
           <el-icon><ChatDotRound /></el-icon>
-          <span>AI 助手</span>
+          <span>AI 知识库</span>
         </el-menu-item>
         <el-menu-item index="/stats">
           <el-icon><DataLine /></el-icon>
@@ -116,7 +116,7 @@ const titleMap: Record<string, string> = {
   '/tasks': '任务',
   '/timer': '计时',
   '/materials': '资料库',
-  '/ai': 'AI 助手',
+  '/ai': 'AI 知识库',
   '/stats': '数据分析',
   '/settings': '设置',
 }

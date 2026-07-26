@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 项目根目录（StudyMate/），用于派生数据存储路径
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 class Config:
     """应用基础配置（环境变量优先，本地回退）。"""
@@ -51,6 +54,19 @@ class Config:
     LOGIN_QR_EXPIRE_SECONDS = int(os.getenv('LOGIN_QR_EXPIRE_SECONDS', '300'))
     # 二维码承载的内容前缀（桌面端 / 小程序据此识别扫码登录意图）
     QR_LOGIN_BASE_URL = os.getenv('QR_LOGIN_BASE_URL', 'studymate://login')
+
+    # ---- Phase 8 DeepSeek / RAG ----
+    DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
+    DEEPSEEK_TIMEOUT = int(os.getenv('DEEPSEEK_TIMEOUT', '60'))
+    DEEPSEEK_MAX_RETRIES = int(os.getenv('DEEPSEEK_MAX_RETRIES', '3'))
+
+    # RAG 知识库（本地 sentence-transformers 向量化 + FAISS 磁盘索引）
+    RAG_EMBEDDING_MODEL = os.getenv('RAG_EMBEDDING_MODEL', 'shibing624/text2vec-base-chinese')
+    RAG_CHUNK_SIZE = int(os.getenv('RAG_CHUNK_SIZE', '400'))
+    RAG_CHUNK_OVERLAP = int(os.getenv('RAG_CHUNK_OVERLAP', '80'))
+    RAG_TOP_K = int(os.getenv('RAG_TOP_K', '4'))
+    RAG_SIM_THRESHOLD = float(os.getenv('RAG_SIM_THRESHOLD', '0.25'))
+    RAG_INDEX_DIR = os.getenv('RAG_INDEX_DIR', os.path.join(BASE_DIR, 'data', 'rag'))
 
 
 class DevelopmentConfig(Config):

@@ -13,7 +13,7 @@ const router = createRouter({
         { path: 'tasks', component: () => import('../views/TasksView.vue') },
         { path: 'timer', component: () => import('../views/TimerView.vue') },
         { path: 'materials', component: () => import('../views/MaterialsView.vue') },
-        { path: 'ai', component: () => import('../views/ComingSoon.vue') },
+        { path: 'ai', component: () => import('../views/RagView.vue') },
         { path: 'stats', component: () => import('../views/AnalyticsView.vue') },
         { path: 'settings', component: () => import('../views/ComingSoon.vue') },
       ],
