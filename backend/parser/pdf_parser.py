@@ -2,10 +2,18 @@ import re
 from datetime import datetime
 from io import BytesIO
 from models.task import StudyTask
+from utils.subject_utils import normalize_subject
 
 
 def parse_pdf_tasks(file, user_id):
-    """解析 PDF 文件中的学习计划"""
+    """解析 PDF 文件中的学习计划。
+
+    支持两类行：
+      1) 带时间段：「2026-07-20 数学 高数强化 08:30-11:30」
+      2) 仅日期+科目+内容：「2026-07-20 英语 单词背诵」（无时间段也保留，时间置空）
+
+    科目经 normalize_subject 归一化（高数→数学 等）；非法/缺日期或内容的行跳过。
+    """
     # 延迟导入：pdfminer 属后续阶段解析依赖，避免在应用启动时强制安装
     from pdfminer.high_level import extract_text
 
@@ -15,44 +23,58 @@ def parse_pdf_tasks(file, user_id):
     tasks = []
     lines = text.split('\n')
 
-    # 正则：匹配 "2026-07-20 数学 高数强化 08:30-11:30" 或类似格式
-    pattern = re.compile(
-        r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})\s+'  # 日期
-        r'([\u4e00-\u9fa5a-zA-Z0-9]+)\s+'      # 科目
-        r'(.+?)\s+'                              # 内容
-        r'(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})'  # 时间范围
-    )
+    # 宽松匹配：日期 + 科目 + 内容(+可选 时间段)
+    date_re = r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})'
+    time_re = r'(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})'
 
     for line in lines:
         line = line.strip()
         if not line:
             continue
 
-        match = pattern.search(line)
-        if match:
-            date_str = match.group(1).replace('/', '-')
-            subject = match.group(2)
-            content = match.group(3).strip()
-            start_str = match.group(4)
-            end_str = match.group(5)
+        m_date = re.search(date_re, line)
+        if not m_date:
+            continue
+        date_str = m_date.group(1).replace('/', '-')
 
+        try:
+            task_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            continue
+
+        # 去掉日期片段后，剩余文本按空白切分：首段=科目，其后=内容
+        rest = line[m_date.end():].strip()
+        m_time = re.search(time_re, rest)
+        start_time = None
+        end_time = None
+        if m_time:
             try:
-                task_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                start_time = datetime.strptime(start_str, '%H:%M').time()
-                end_time = datetime.strptime(end_str, '%H:%M').time()
+                start_time = datetime.strptime(m_time.group(1), '%H:%M').time()
+                end_time = datetime.strptime(m_time.group(2), '%H:%M').time()
+                # 去掉时间段片段，避免混进内容
+                rest = (rest[:m_time.start()] + rest[m_time.end():]).strip()
             except ValueError:
-                continue
+                pass
 
-            task = StudyTask(
-                user_id=user_id,
-                date=task_date,
-                subject=subject,
-                content=content,
-                start_time=start_time,
-                end_time=end_time,
-                status='pending',
-                plan_source='pdf',
-            )
-            tasks.append(task)
+        parts = rest.split(None, 1)
+        if len(parts) < 2:
+            # 至少要能拆出「科目 + 内容」两段
+            continue
+        subject_raw, content = parts[0], parts[1].strip()
+        if not content:
+            continue
+
+        subject = normalize_subject(subject_raw)
+
+        tasks.append(StudyTask(
+            user_id=user_id,
+            date=task_date,
+            subject=subject,
+            content=content,
+            start_time=start_time,
+            end_time=end_time,
+            status='pending',
+            plan_source='pdf',
+        ))
 
     return tasks
