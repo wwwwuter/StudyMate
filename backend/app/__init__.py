@@ -19,12 +19,14 @@ def create_app(config_name='default'):
     from routes.task import task_bp
     from routes.record import record_bp
     from routes.ai_route import ai_bp
+    from routes.material import material_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(user_bp, url_prefix='/api/user')
     app.register_blueprint(task_bp, url_prefix='/api/tasks')
     app.register_blueprint(record_bp, url_prefix='/api/records')
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
+    app.register_blueprint(material_bp, url_prefix='/api/materials')
 
     # 健康检查
     @app.route('/api/health')
