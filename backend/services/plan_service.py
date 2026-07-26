@@ -1,0 +1,201 @@
+"""学习计划业务层。
+
+承载学习任务的 CRUD 与 Excel/JSON/PDF 导入编排，保持路由轻量、可单测。
+所有函数以 user_id 做数据隔离，路由层仅负责 HTTP 编解码。
+"""
+from datetime import datetime, date, time
+
+from app.extensions import db
+from models.task import StudyTask
+from utils.subject_utils import normalize_subject
+
+
+# ------------------------- 解析辅助 -------------------------
+def _parse_date(value):
+    """支持 date / datetime / 字符串(YYYY-MM-DD 或 YYYY/MM/DD)。"""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%Y.%m.%d'):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+    return None
+
+
+def _parse_time(value):
+    """支持 time / datetime / 字符串(HH:MM)。空值/非法值返回 None。"""
+    if isinstance(value, datetime):
+        return value.time()
+    if isinstance(value, time):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        parts = s.split(':')
+        if len(parts) == 2:
+            try:
+                return time(int(parts[0]), int(parts[1]))
+            except ValueError:
+                return None
+    return None
+
+
+def _build_task(user_id, data, source):
+    """根据字典构造一个 StudyTask，含校验；失败抛 ValueError。"""
+    if not isinstance(data, dict):
+        raise ValueError('任务数据应为对象')
+
+    task_date = _parse_date(data.get('date'))
+    if task_date is None:
+        raise ValueError("缺少或格式错误的 date（应为 YYYY-MM-DD）")
+
+    subject = normalize_subject(data.get('subject'))
+    if not subject:
+        raise ValueError('缺少 subject（科目）')
+
+    content = (data.get('content') or '').strip()
+    if not content:
+        raise ValueError('缺少 content（内容）')
+
+    status = data.get('status', StudyTask.STATUS_PENDING)
+    if not StudyTask.is_valid_status(status):
+        raise ValueError(f'非法 status: {status}')
+
+    return StudyTask(
+        user_id=user_id,
+        date=task_date,
+        subject=subject,
+        content=content,
+        start_time=_parse_time(data.get('start_time')),
+        end_time=_parse_time(data.get('end_time')),
+        status=status,
+        plan_source=data.get('plan_source', source),
+    )
+
+
+# ------------------------- CRUD -------------------------
+def create_task(user_id, data):
+    task = _build_task(user_id, data, StudyTask.SOURCE_MANUAL)
+    db.session.add(task)
+    db.session.commit()
+    return task
+
+
+def bulk_create(user_id, items):
+    if not isinstance(items, list) or not items:
+        raise ValueError('任务列表为空')
+    tasks = []
+    for i, item in enumerate(items):
+        try:
+            tasks.append(_build_task(user_id, item, StudyTask.SOURCE_MANUAL))
+        except ValueError as e:
+            raise ValueError(f'第 {i + 1} 条: {e}')
+    db.session.add_all(tasks)
+    db.session.commit()
+    return tasks
+
+
+def get_task(user_id, task_id):
+    return StudyTask.query.filter_by(id=task_id, user_id=user_id).first()
+
+
+def list_tasks(user_id, filters=None):
+    filters = filters or {}
+    query = StudyTask.query.filter_by(user_id=user_id)
+
+    if filters.get('date'):
+        d = _parse_date(filters['date'])
+        if d:
+            query = query.filter_by(date=d)
+    if filters.get('start_date'):
+        d = _parse_date(filters['start_date'])
+        if d:
+            query = query.filter(StudyTask.date >= d)
+    if filters.get('end_date'):
+        d = _parse_date(filters['end_date'])
+        if d:
+            query = query.filter(StudyTask.date <= d)
+    if filters.get('subject'):
+        query = query.filter_by(subject=normalize_subject(filters['subject']))
+    if filters.get('status'):
+        query = query.filter_by(status=filters['status'])
+    if filters.get('keyword'):
+        like = f"%{filters['keyword']}%"
+        query = query.filter(StudyTask.content.like(like))
+
+    return query.order_by(StudyTask.date, StudyTask.start_time).all()
+
+
+def update_task(user_id, task_id, data):
+    task = get_task(user_id, task_id)
+    if task is None:
+        return None
+
+    if 'date' in data and data['date'] is not None:
+        d = _parse_date(data['date'])
+        if d is None:
+            raise ValueError('date 格式错误（应为 YYYY-MM-DD）')
+        task.date = d
+    if 'subject' in data:
+        s = normalize_subject(data['subject'])
+        if not s:
+            raise ValueError('subject 不能为空')
+        task.subject = s
+    if 'content' in data:
+        c = (data['content'] or '').strip()
+        if not c:
+            raise ValueError('content 不能为空')
+        task.content = c
+    if 'start_time' in data:
+        task.start_time = _parse_time(data['start_time'])
+    if 'end_time' in data:
+        task.end_time = _parse_time(data['end_time'])
+    if 'status' in data:
+        if not StudyTask.is_valid_status(data['status']):
+            raise ValueError(f'非法 status: {data["status"]}')
+        task.status = data['status']
+
+    db.session.commit()
+    return task
+
+
+def delete_task(user_id, task_id):
+    task = get_task(user_id, task_id)
+    if task is None:
+        return False
+    db.session.delete(task)
+    db.session.commit()
+    return True
+
+
+# ------------------------- 导入 -------------------------
+def _persist_imported(user_id, tasks):
+    """将解析器产出的对象落库，校正 user_id 与非法状态。"""
+    valid = []
+    for t in tasks:
+        t.user_id = user_id
+        if not StudyTask.is_valid_status(t.status):
+            t.status = StudyTask.STATUS_PENDING
+        valid.append(t)
+    db.session.add_all(valid)
+    db.session.commit()
+    return valid
+
+
+def import_from_excel(user_id, file_storage):
+    from parser.excel_parser import parse_excel_tasks
+    return _persist_imported(user_id, parse_excel_tasks(file_storage, user_id))
+
+
+def import_from_json(user_id, file_storage):
+    from parser.json_parser import parse_json_tasks
+    return _persist_imported(user_id, parse_json_tasks(file_storage, user_id))
+
+
+def import_from_pdf(user_id, file_storage):
+    from parser.pdf_parser import parse_pdf_tasks
+    return _persist_imported(user_id, parse_pdf_tasks(file_storage, user_id))
