@@ -32,11 +32,22 @@ desktop/
 - **UI**：`vue/src/App.vue` 消费 `electronAPI.onUpdateStatus`，用 `ElNotification` 提示「正在检查 / 发现新版本 / 更新就绪（点击重启安装）/ 失败」。
 - **配置**：把 `package.json` 里的 `repository.url` 与 `build.publish[].owner/repo` 改成你的仓库（`OWNER/REPO` 是占位符）。`latest.yml` 与安装包须由 `npm run release` 上传到同一 Release。
 
+## 内置后端（一键启动）
+
+自 v1.1.0 起安装包捆绑 Python 后端（PyInstaller 冻结产物），用户双击即用、无需装 Python/MySQL：
+
+- **打包**：`cd backend && pyinstaller studymate-backend.spec --noconfirm` 产出 `backend/dist/studymate-backend/`（约 99MB），由 `build.extraResources` 拷进安装包 `resources/backend/`。
+- **启动链路**：`main.js` 在打包态 spawn `studymate-backend.exe --port <空闲端口> --data-dir <userData>/backend-data` → 轮询 `/api/health`（最长 30s）→ 就绪后写回 `settings.json` 的 `backendUrl` → 再开窗口；`before-quit` 时 `taskkill /T /F` 清理整个进程树。
+- **数据**：SQLite（`userData/backend-data/studymate.db`，首启 `db.create_all()` 自动建表），RAG 索引同目录；后端日志在 `userData/backend.log`。
+- **入口差异**（`backend/desktop_run.py` vs `run.py`）：waitress 替代 Flask dev server；DATABASE_URL 缺省为 SQLite；无 DeepSeek 密钥时 `PDF_AI_MOCK=true`、无微信 AppID 时 `WECHAT_MOCK=true`（保证单机可登录）。
+- **体积取舍**：spec 排除了 torch / sentence-transformers / faiss（否则 +2GB）。RAG 自动回退**关键词检索**；需完整向量检索时删掉 excludes 重打后端。
+- 若内置后端 exe 缺失（如开发者手工删了 extraResources），回退用 `settings.json` 里的外部 `backendUrl`。
+
 ## 后端地址
 
-- 生产态默认 `http://127.0.0.1:5000`，持久化在 `userData/settings.json`（`backendUrl` 字段）。
+- 打包态由主进程自动写入（内置后端实际端口）；开发态默认 `http://127.0.0.1:5000`。
 - `request.ts` 在 Electron 下读取 `electronAPI.getBackendUrl()`，拼成 `${url}/api`；非 Electron（vite dev）则走 `/api` 由 vite proxy 转发。
-- 当前改地址需编辑 `settings.json`；后续可加设置 UI。
+- 注意：内置后端就绪时会覆盖 `settings.json` 的 `backendUrl`；如要强制连远程后端，需删除内置后端目录或后续加设置 UI 开关。
 
 ## 已知限制 / 取舍
 

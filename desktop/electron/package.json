@@ -1,7 +1,7 @@
 {
   "name": "studymate-electron",
-  "version": "1.0.0",
-  "description": "StudyMate 桌面端（Electron 外壳，打包 Vue 前端 SPA；后端单独运行/部署）",
+  "version": "1.1.0",
+  "description": "StudyMate 桌面端（Electron 外壳，打包 Vue 前端 SPA + 内置 Python 后端，一键启动）",
   "main": "main.js",
   "author": "",
   "license": "ISC",
@@ -38,6 +38,12 @@
       "main.js",
       "preload.js",
       "../vue/dist/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../../backend/dist/studymate-backend",
+        "to": "backend/studymate-backend"
+      }
     ],
     "win": {
       "target": "nsis",

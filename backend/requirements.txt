@@ -20,3 +20,6 @@ sentence-transformers==2.7.0
 faiss-cpu>=1.9.0
 numpy>=2.0  # Python 3.13 需 numpy>=2（官方 cp313 轮子；<2 会装回崩溃的 MINGW 实验构建）
 gunicorn==22.0.0
+# ---- 桌面端打包（Phase 9.5：后端随 exe 一键启动）----
+waitress==3.0.2      # desktop_run.py 生产 WSGI 服务器
+pyinstaller==6.21.0  # 冻结后端为 studymate-backend.exe（仅构建机需要）

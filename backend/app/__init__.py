@@ -43,9 +43,7 @@ def create_app(config_name='default'):
     reminder_bp.add_url_rule('/reminders/sweep', 'reminder_sweep', sweep, methods=['POST'])
     app.register_blueprint(reminder_bp, url_prefix='/api')
 
-    return app
-
-    # 健康检查
+    # 健康检查（Electron 桌面端拉起后端后靠此探活）
     @app.route('/api/health')
     def health():
         return {'status': 'ok', 'message': 'StudyMate API is running'}

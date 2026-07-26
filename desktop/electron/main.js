@@ -1,6 +1,9 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const http = require('http')
+const net = require('net')
+const { spawn } = require('child_process')
 
 // ---------------------------------------------------------------------------
 // 后端地址持久化（userData/settings.json）
@@ -23,6 +26,113 @@ function writeBackendUrl(url) {
   const s = readSettings()
   s.backendUrl = url
   fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2))
+}
+
+// ---------------------------------------------------------------------------
+// 内置后端进程管理（打包态：spawn studymate-backend.exe → 探活 → 退出清理）
+// 开发态跳过：开发者自行运行 python run.py。
+// ---------------------------------------------------------------------------
+let backendProc = null
+let backendPort = 5000
+
+function backendExePath() {
+  // extraResources 布局：resources/backend/studymate-backend/studymate-backend.exe
+  return path.join(
+    process.resourcesPath,
+    'backend',
+    'studymate-backend',
+    'studymate-backend.exe'
+  )
+}
+
+// 找一个空闲端口（优先 5000，被占则由系统分配）
+function findFreePort(preferred) {
+  return new Promise((resolve) => {
+    const srv = net.createServer()
+    srv.once('error', () => {
+      // preferred 被占用 → 端口 0 让系统分配
+      const srv2 = net.createServer()
+      srv2.listen(0, '127.0.0.1', () => {
+        const port = srv2.address().port
+        srv2.close(() => resolve(port))
+      })
+    })
+    srv.listen(preferred, '127.0.0.1', () => {
+      srv.close(() => resolve(preferred))
+    })
+  })
+}
+
+function healthCheck(port) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: '127.0.0.1', port, path: '/api/health', timeout: 2000 },
+      (res) => resolve(res.statusCode === 200)
+    )
+    req.on('error', () => resolve(false))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve(false)
+    })
+  })
+}
+
+// 轮询探活：最多 waitMs 毫秒
+async function waitForBackend(port, waitMs = 30000) {
+  const deadline = Date.now() + waitMs
+  while (Date.now() < deadline) {
+    if (await healthCheck(port)) return true
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return false
+}
+
+async function startBackend() {
+  const exe = backendExePath()
+  if (!fs.existsSync(exe)) {
+    console.warn('[backend] 未找到内置后端：', exe, '（回退到 settings 中的外部后端地址）')
+    return false
+  }
+
+  backendPort = await findFreePort(5000)
+  const dataDir = path.join(app.getPath('userData'), 'backend-data')
+  const logPath = path.join(app.getPath('userData'), 'backend.log')
+  const logFd = fs.openSync(logPath, 'a')
+
+  backendProc = spawn(exe, ['--port', String(backendPort), '--data-dir', dataDir], {
+    cwd: path.dirname(exe),
+    stdio: ['ignore', logFd, logFd],
+    windowsHide: true,
+  })
+  backendProc.on('exit', (code) => {
+    console.warn('[backend] 进程退出，code =', code)
+    backendProc = null
+  })
+
+  const ok = await waitForBackend(backendPort)
+  if (ok) {
+    // 内置后端就绪 → 覆盖 backendUrl，前端 request.ts 走 IPC 拿到正确端口
+    writeBackendUrl(`http://127.0.0.1:${backendPort}`)
+    console.log(`[backend] 内置后端就绪：http://127.0.0.1:${backendPort}`)
+  } else {
+    console.error('[backend] 30 秒内未就绪，查看日志：', logPath)
+  }
+  return ok
+}
+
+function stopBackend() {
+  if (!backendProc) return
+  try {
+    // Windows 下 kill 整个进程树，避免残留 waitress 子进程
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(backendProc.pid), '/T', '/F'], { windowsHide: true })
+    } else {
+      backendProc.kill('SIGTERM')
+    }
+  } catch (e) {
+    console.warn('[backend] 结束进程失败：', e.message)
+  }
+  backendProc = null
 }
 
 // ---------------------------------------------------------------------------
@@ -116,13 +226,21 @@ function initAutoUpdater() {
 // ---------------------------------------------------------------------------
 // 生命周期
 // ---------------------------------------------------------------------------
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 打包态：先拉起内置后端（探活通过或超时后再开窗，避免首屏全是请求报错）
+  if (!isDev) {
+    await startBackend()
+  }
   createWindow()
   initAutoUpdater()
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  stopBackend()
 })
 
 app.on('activate', () => {
