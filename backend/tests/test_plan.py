@@ -372,24 +372,24 @@ def test_parse_excel_xls_branch(monkeypatch):
     assert tasks[0].content == '真题'
 
 
-# ---- PDF 智能解析（AI 识别任务）----
-def test_import_pdf_ai(client, monkeypatch):
-    """AI 识别：科目归一化、无效条跳过、去重落库。"""
+# ---- PDF 智能解析（AI 识别任务，U2 预览/确认）----
+def test_import_pdf_ai_preview_and_confirm(client, monkeypatch):
+    """预览返回全部识别结果（含待确认/无效，不归一化）；确认后仅有效条落库并归一化。"""
     h = _login(client)
     sample = [
         {'date': '2026-09-10', 'subject': '高数', 'content': '极限专题', 'start_time': '08:00', 'end_time': '10:00'},
         {'date': '2026-09-11', 'subject': '英语', 'content': '单词'},
-        {'date': 'bad', 'subject': 'x', 'content': ''},  # 缺内容，应被校验拒绝
+        {'date': 'bad', 'subject': 'x', 'content': ''},  # 缺有效内容，确认时应被跳过
     ]
     import ai.service as svc
     import parser.pdf_parser as pp
-    # 替换 AI 提取结果与 PDF 文本提取，避免依赖真实模型与 pdfminer
     monkeypatch.setattr(svc.AIService, 'extract_tasks', lambda self, text, user_id=0: sample)
-    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: '')
+    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: 'long enough text to bypass scan check xxxxxx')
+    monkeypatch.setattr(pp, 'is_scanned_pdf', lambda f: False)
 
     class FakePdf:
         filename = 'plan.pdf'
-        _buf = b'%PDF-1.4'
+        _buf = b'%PDF-1.4 scan'
         _pos = 0
 
         def read(self, size=-1):
@@ -399,14 +399,44 @@ def test_import_pdf_ai(client, monkeypatch):
             self._pos += len(chunk)
             return chunk
 
+    # 预览：不落库，返回全部 3 条（含无效），且预览阶段未归一化
     r = client.post('/api/tasks/import/pdf/ai', data={'file': (FakePdf(), 'plan.pdf')},
                     headers=h, content_type='multipart/form-data')
     assert r.status_code == 200, r.get_json()
-    d = r.get_json()['data']
+    preview = r.get_json()['data']
+    assert preview['count'] == 3
+    assert preview['tasks'][0]['subject'] == '高数'
+
+    # 确认落库：发送全部 3 条，无效条（缺有效内容）被跳过，'高数' 归一化为 '数学'
+    r2 = client.post('/api/tasks/import/pdf/ai/confirm', json=preview['tasks'], headers=h)
+    assert r2.status_code == 200, r2.get_json()
+    d = r2.get_json()['data']
     assert d['count'] == 2
     assert d['skipped'] == 1
     subjects = {t['subject'] for t in d['tasks']}
-    assert '数学' in subjects   # 高数归一化
+    assert '数学' in subjects
+
+
+def test_import_pdf_ai_relative_date_flagged(client, monkeypatch):
+    """相对日期/低置信度任务在预览中被标记 needs_review（U1+U2）。"""
+    h = _login(client)
+    sample = [
+        {'date': None, 'subject': '数学', 'content': '待确认日期', 'confidence': 0.4, 'date_note': '相对日期'},
+        {'date': '2026-09-12', 'subject': '英语', 'content': '阅读', 'confidence': 0.95},
+    ]
+    import ai.service as svc
+    import parser.pdf_parser as pp
+    monkeypatch.setattr(svc.AIService, 'extract_tasks', lambda self, text, user_id=0: sample)
+    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: 'long enough text to bypass scan check xxxxxx')
+    monkeypatch.setattr(pp, 'is_scanned_pdf', lambda f: False)
+
+    r = client.post('/api/tasks/import/pdf/ai',
+                    data={'file': (io.BytesIO(b'%PDF long enough text'), 'plan.pdf')},
+                    headers=h, content_type='multipart/form-data')
+    assert r.status_code == 200, r.get_json()
+    tasks = r.get_json()['data']['tasks']
+    assert tasks[0]['needs_review'] is True
+    assert tasks[1]['needs_review'] is False
 
 
 def test_import_pdf_ai_unavailable(client, monkeypatch):
@@ -414,11 +444,12 @@ def test_import_pdf_ai_unavailable(client, monkeypatch):
     h = _login(client)
     import ai.service as svc
     import parser.pdf_parser as pp
-    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: 'some text')
+    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: 'long enough text to bypass scan check xxxxxx')
+    monkeypatch.setattr(pp, 'is_scanned_pdf', lambda f: False)
     monkeypatch.setattr(svc.DeepSeekClient, 'is_available', lambda self: False)
 
     r = client.post('/api/tasks/import/pdf/ai',
-                    data={'file': (io.BytesIO(b'%PDF'), 'plan.pdf')},
+                    data={'file': (io.BytesIO(b'%PDF long enough text'), 'plan.pdf')},
                     headers=h, content_type='multipart/form-data')
     assert r.status_code == 400
     msg = r.get_json()['message']
