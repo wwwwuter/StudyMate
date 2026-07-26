@@ -1,7 +1,8 @@
-const { contextBridge, ipcRenderer } = require('electron')
-
-contextBridge.exposeInMainWorld('electronAPI', {
-  sendNotification: (title, body) => {
-    ipcRenderer.invoke('send-notification', title, body)
-  },
-})
+window.addEventListener(
+    'DOMContentLoaded',
+    ()=>{
+        console.log(
+            'StudyMate Electron Ready'
+        )
+    }
+)

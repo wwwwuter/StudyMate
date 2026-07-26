@@ -1,0 +1,38 @@
+:root {
+
+    --primary-color: #2563EB;
+
+    --bg-color: #F8FAFC;
+
+    --card-color: #FFFFFF;
+
+    --border-color: #E5E7EB;
+
+    --ai-color: #7C3AED;
+
+}
+
+
+body {
+
+    margin:0;
+
+    padding:0;
+
+    background:#F8FAFC;
+
+    font-family:
+    "Microsoft YaHei",
+    "Inter",
+    sans-serif;
+
+}
+
+
+#app {
+
+    width:100%;
+
+    height:100vh;
+
+}
