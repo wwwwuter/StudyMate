@@ -30,6 +30,10 @@ class Config:
     JWT_SECRET = os.getenv('JWT_SECRET_KEY') or os.getenv('JWT_SECRET', 'dev-jwt-secret')
     JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', '72'))
 
+    # 双令牌策略：access token 短期有效，refresh token 长期有效用于无感刷新。
+    JWT_ACCESS_EXPIRATION_HOURS = int(os.getenv('JWT_ACCESS_EXPIRATION_HOURS', '2'))
+    JWT_REFRESH_EXPIRATION_DAYS = int(os.getenv('JWT_REFRESH_EXPIRATION_DAYS', '30'))
+
     # ---- DeepSeek AI（后续阶段实现）----
     DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
     DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
@@ -37,6 +41,14 @@ class Config:
     # ---- 微信小程序（预留）----
     WECHAT_APP_ID = os.getenv('WECHAT_APP_ID', '')
     WECHAT_APP_SECRET = os.getenv('WECHAT_APP_SECRET', '')
+
+    # ---- 扫码登录（桌面端 + 配套小程序）----
+    # 本地开发 / 测试无真实 AppID 时置 true：WeChatService 返回确定性 mock openid。
+    WECHAT_MOCK = os.getenv('WECHAT_MOCK', 'false').lower() in ('1', 'true', 'yes')
+    # 二维码票据有效期（秒）
+    LOGIN_QR_EXPIRE_SECONDS = int(os.getenv('LOGIN_QR_EXPIRE_SECONDS', '300'))
+    # 二维码承载的内容前缀（桌面端 / 小程序据此识别扫码登录意图）
+    QR_LOGIN_BASE_URL = os.getenv('QR_LOGIN_BASE_URL', 'studymate://login')
 
 
 class DevelopmentConfig(Config):
