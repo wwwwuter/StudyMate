@@ -29,7 +29,7 @@ class DeepSeekClient:
             )
         return self._client
 
-    def chat(self, messages, temperature=0.7, max_tokens=2048):
+    def chat(self, messages, temperature=0.7, max_tokens=2048, response_format=None):
         """调用 DeepSeek 对话 API"""
         if not self.api_key:
             raise ValueError('DeepSeek API Key 未配置')
@@ -37,12 +37,15 @@ class DeepSeekClient:
         client = self._get_client()
         try:
             start_time = time.time()
-            response = client.chat.completions.create(
+            kwargs = dict(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+            if response_format is not None:
+                kwargs['response_format'] = response_format
+            response = client.chat.completions.create(**kwargs)
             elapsed = time.time() - start_time
             logger.info(f'DeepSeek API 调用成功，耗时: {elapsed:.2f}s')
 
