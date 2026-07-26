@@ -1,5 +1,6 @@
 Flask==3.0.3
 Flask-CORS==4.0.1
+openai==2.48.0
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.7
 PyMySQL==1.1.1

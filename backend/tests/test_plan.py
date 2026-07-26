@@ -372,5 +372,58 @@ def test_parse_excel_xls_branch(monkeypatch):
     assert tasks[0].content == '真题'
 
 
+# ---- PDF 智能解析（AI 识别任务）----
+def test_import_pdf_ai(client, monkeypatch):
+    """AI 识别：科目归一化、无效条跳过、去重落库。"""
+    h = _login(client)
+    sample = [
+        {'date': '2026-09-10', 'subject': '高数', 'content': '极限专题', 'start_time': '08:00', 'end_time': '10:00'},
+        {'date': '2026-09-11', 'subject': '英语', 'content': '单词'},
+        {'date': 'bad', 'subject': 'x', 'content': ''},  # 缺内容，应被校验拒绝
+    ]
+    import ai.service as svc
+    import parser.pdf_parser as pp
+    # 替换 AI 提取结果与 PDF 文本提取，避免依赖真实模型与 pdfminer
+    monkeypatch.setattr(svc.AIService, 'extract_tasks', lambda self, text, user_id=0: sample)
+    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: '')
+
+    class FakePdf:
+        filename = 'plan.pdf'
+        _buf = b'%PDF-1.4'
+        _pos = 0
+
+        def read(self, size=-1):
+            if size is None or size < 0:
+                size = len(self._buf)
+            chunk = self._buf[self._pos:self._pos + size]
+            self._pos += len(chunk)
+            return chunk
+
+    r = client.post('/api/tasks/import/pdf/ai', data={'file': (FakePdf(), 'plan.pdf')},
+                    headers=h, content_type='multipart/form-data')
+    assert r.status_code == 200, r.get_json()
+    d = r.get_json()['data']
+    assert d['count'] == 2
+    assert d['skipped'] == 1
+    subjects = {t['subject'] for t in d['tasks']}
+    assert '数学' in subjects   # 高数归一化
+
+
+def test_import_pdf_ai_unavailable(client, monkeypatch):
+    """无 DeepSeek 密钥且未开 PDF_AI_MOCK 时，返回明确错误而非 500。"""
+    h = _login(client)
+    import ai.service as svc
+    import parser.pdf_parser as pp
+    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: 'some text')
+    monkeypatch.setattr(svc.DeepSeekClient, 'is_available', lambda self: False)
+
+    r = client.post('/api/tasks/import/pdf/ai',
+                    data={'file': (io.BytesIO(b'%PDF'), 'plan.pdf')},
+                    headers=h, content_type='multipart/form-data')
+    assert r.status_code == 400
+    msg = r.get_json()['message']
+    assert 'DeepSeek' in msg or '未配置' in msg
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
