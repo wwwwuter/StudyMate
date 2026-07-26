@@ -452,7 +452,28 @@ GET  /api/rag/status           # 索引状态
 
 ---
 
-## 9. 测试
+## 9. 生产数据库迁移（Alembic 落地）
+
+测试环境用 `db.create_all` 自动建表，但生产 MySQL 需要 Alembic 迁移。已提供两条链路：
+
+- `migrations/versions/0b7f891a6d8e_init_schema_*.py`：init 基线（Phase1–4 全量建表，含 users / study_tasks / study_records / login_tickets / ai_analysis 等）。
+- `migrations/versions/d4e5f6a7b8c9_phase5_phase6_schema.py`：增量（Phase5 资料库表 + 计时/字段扩展列；Phase6 reminders / reminder_settings 表）。新增列均为 nullable，老数据兼容。
+
+**首次落地（关键：现有库只跑过 `create_all`，无 `alembic_version`，直接 `upgrade` 会「表已存在」报错）**：
+
+```bash
+# 仓库已提供 .flaskenv（FLASK_APP=app:create_app），flask db 走工厂入口、不拉起 APScheduler
+export DATABASE_URL="mysql+pymysql://user:pwd@host:3306/studymate?charset=utf8mb4"  # 生产库
+flask db stamp 0b7f891a6d8e   # 把 init 标记为已应用（不实际建表）
+flask db upgrade              # 仅应用 Phase5/6 增量迁移
+```
+
+> 注意：不要把 `run.py` 当 `FLASK_APP`——其模块级会拉起 APScheduler 后台线程。`.flaskenv` 已指向 `app:create_app`，而 `create_app()` 本身不启动调度器。
+> 验证链路：`flask db heads` 应显示 `d4e5f6a7b8c9` 为当前 head；`flask db current` 在 stamp 后为 `0b7f891a6d8e`，upgrade 后变 `d4e5f6a7b8c9`。
+
+---
+
+## 10. 测试
 
 使用 pytest，基于 **SQLite 内存库 + `WECHAT_MOCK=true`**，不依赖本地 MySQL：
 
@@ -465,7 +486,7 @@ export FLASK_APP=app:create_app
 
 ---
 
-## 10. 后续阶段
+## 11. 后续阶段
 
 - **Phase 7 已完成**：学习数据指标聚合、ECharts 可视化、DeepSeek/模板双轨 AI 学习报告。
 - **待做**：每日任务自动生成、每任务自定义提醒、桌面原生提醒推送、真实 OCR 与 RAG 向量检索、Redis 令牌黑名单、软删除回收站。
@@ -474,7 +495,7 @@ export FLASK_APP=app:create_app
 
 ---
 
-## 11. 常见问题
+## 12. 常见问题
 
 - **启动报 `ModuleNotFoundError: pdfminer / openpyxl / openai`**：这些是后续阶段的重依赖，已在导入处改为延迟导入，启动后端不依赖它们。需要对应功能时再 `pip install -r requirements.txt` 补齐。
 - **迁移报 `Cannot drop index` / 表已存在**：早期残留表结构与当前模型不一致，清空 `studymate` 库重新 `flask db upgrade` 即可（开发环境无业务数据）。
