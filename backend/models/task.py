@@ -27,6 +27,10 @@ class StudyTask(db.Model):
     end_time = db.Column(db.Time, nullable=True, comment='结束时间')
     status = db.Column(db.String(16), default=STATUS_PENDING, comment='pending/done/cancelled')
     plan_source = db.Column(db.String(16), default=SOURCE_MANUAL, comment='manual/excel/json/pdf/auto')
+    # 字段扩展（Phase 5 升级方向 U5）
+    priority = db.Column(db.Integer, default=0, comment='优先级：0 普通 / 1 高 / 2 紧急')
+    estimated_minutes = db.Column(db.Integer, nullable=True, comment='预估时长（分钟）')
+    tags = db.Column(db.String(128), nullable=True, comment='标签，逗号分隔')
     create_time = db.Column(db.DateTime, default=utcnow)
     update_time = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
@@ -41,6 +45,9 @@ class StudyTask(db.Model):
             'end_time': self.end_time.strftime('%H:%M') if self.end_time else None,
             'status': self.status,
             'plan_source': self.plan_source,
+            'priority': self.priority,
+            'estimated_minutes': self.estimated_minutes,
+            'tags': self.tags,
             'create_time': self.create_time.strftime('%Y-%m-%d %H:%M:%S') if self.create_time else None,
             'update_time': self.update_time.strftime('%Y-%m-%d %H:%M:%S') if self.update_time else None,
         }
