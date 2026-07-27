@@ -150,14 +150,44 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // 本地应用加载 app.asar 内 file:// 协议的 ESM 模块，关闭 webSecurity 避免 CORS 拦截
+      webSecurity: false,
     },
+  })
+
+  // 把渲染进程的 console 日志回写到 userData/renderer.log，便于排查白屏
+  win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    const levels = { 0: 'DEBUG', 1: 'INFO', 2: 'WARN', 3: 'ERROR' }
+    const label = levels[level] || 'LOG'
+    const line2 = `[renderer] [${label}] ${message}${sourceId ? ' @ ' + sourceId + ':' + line : ''}`
+    console.log(line2)
+    try {
+      const logPath = path.join(app.getPath('userData'), 'renderer.log')
+      fs.appendFileSync(logPath, line2 + '\n')
+    } catch (e) {}
+  })
+
+  win.webContents.on('did-finish-load', () => {
+    const u = win.webContents.getURL()
+    console.log('[main] did-finish-load:', u)
+    try {
+      fs.appendFileSync(path.join(app.getPath('userData'), 'renderer.log'), `[main] did-finish-load: ${u}\n`)
+    } catch (e) {}
+  })
+  win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.log('[main] did-fail-load:', errorCode, errorDescription, validatedURL)
+    try {
+      fs.appendFileSync(path.join(app.getPath('userData'), 'renderer.log'), `[main] did-fail-load: ${errorCode} ${errorDescription} ${validatedURL}\n`)
+    } catch (e) {}
   })
 
   if (isDev) {
     // 开发态：连 Vite dev server（vite.config 已把 /api 代理到 Flask:5000）
     win.loadURL('http://localhost:5173')
+    win.webContents.openDevTools()
   } else {
     // 生产态：加载打包进来的 Vue 构建产物
+    // asar 已禁用（package.json build.asar:false），避免 ESM 在 asar 内动态导入失败
     win.loadFile(path.join(__dirname, 'vue', 'dist', 'index.html'))
   }
 }

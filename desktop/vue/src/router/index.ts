@@ -1,8 +1,10 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import MainLayout from '../layout/MainLayout.vue'
 
 const router = createRouter({
-  history: createWebHistory(),
+  // 用 hash 路由：Electron file:// 协议下 createWebHistory 无法正确匹配路径，
+  // 导致 router-view 为空、界面白屏。hash 路由用 #/ 导航，不依赖服务器。
+  history: createWebHashHistory(),
   routes: [
     {
       path: '/',

@@ -93,7 +93,10 @@ def _build_task(user_id, data, source):
         except (ValueError, TypeError):
             pass
     if data.get('tags') is not None:
-        task.tags = data['tags']
+        tags_val = data['tags']
+        if isinstance(tags_val, list):
+            tags_val = ','.join(str(t) for t in tags_val)
+        task.tags = tags_val
     return task
 
 
@@ -201,7 +204,10 @@ def update_task(user_id, task_id, data):
         except (ValueError, TypeError):
             raise ValueError('estimated_minutes 应为整数')
     if 'tags' in data:
-        task.tags = data['tags']
+        tags_val = data['tags']
+        if isinstance(tags_val, list):
+            tags_val = ','.join(str(t) for t in tags_val)
+        task.tags = tags_val
 
     db.session.commit()
     return task
