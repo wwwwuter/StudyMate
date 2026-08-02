@@ -16,6 +16,7 @@ from app.config import (
     REMINDER_SWEEP_INTERVAL,
     REMINDER_GRACE_MINUTES,
     REMINDER_MAX_LOOKAHEAD,
+    REMINDER_DEFAULT_HOUR,
 )
 from models.task import StudyTask
 from models.reminder import Reminder, ReminderSetting
@@ -32,7 +33,14 @@ def get_setting(user_id):
 
 
 def sweep_due_reminders():
-    """扫描并生成即将开始任务的提醒。幂等：同一任务已有提醒则跳过。返回新建数量。"""
+    """扫描并生成即将开始任务的提醒。幂等：同一任务已有提醒则跳过。返回新建数量。
+
+    两类任务都会生成提醒：
+    1) 带 start_time 的：按「开始时间 - 提前量 ~ 开始时间 + 宽限」窗口触发。
+    2) 仅日期型任务（如艾宾浩斯铺排的学习/复习任务，无具体时刻）：
+       以 REMINDER_DEFAULT_HOUR 为触发整点，当天 0 点 ~ 次日 0 点之间均视为「今日待提醒」，
+       进入该天即生成一次提醒。
+    """
     from utils.time_utils import utcnow
 
     now = utcnow()
@@ -41,23 +49,31 @@ def sweep_due_reminders():
     tasks = (
         StudyTask.query
         .filter(StudyTask.status == StudyTask.STATUS_PENDING)
-        .filter(StudyTask.start_time.isnot(None))
         .all()
     )
 
     created = 0
     for t in tasks:
-        task_dt = datetime.combine(t.date, t.start_time)
-        if task_dt > horizon:
-            continue
         setting = get_setting(t.user_id)
         if not setting.enabled:
             continue
-        lead = timedelta(minutes=setting.lead_minutes)
-        grace = timedelta(minutes=REMINDER_GRACE_MINUTES)
-        # 提醒窗口：[开始时间 - 提前量, 开始时间 + 宽限]，进入窗口即生成一次
-        if not (task_dt - lead <= now <= task_dt + grace):
-            continue
+
+        if t.start_time is not None:
+            task_dt = datetime.combine(t.date, t.start_time)
+            if task_dt > horizon:
+                continue
+            lead = timedelta(minutes=setting.lead_minutes)
+            grace = timedelta(minutes=REMINDER_GRACE_MINUTES)
+            if not (task_dt - lead <= now <= task_dt + grace):
+                continue
+            fire_at = task_dt
+        else:
+            # 日期型任务：仅当任务日 == 今天 时触发（当天 0 点后生效）
+            task_day_start = datetime.combine(t.date, datetime.min.time())
+            if not (task_day_start <= now < task_day_start + timedelta(days=1)):
+                continue
+            fire_at = datetime.combine(t.date, datetime.min.time().replace(hour=REMINDER_DEFAULT_HOUR))
+
         exists = Reminder.query.filter_by(
             user_id=t.user_id, task_id=t.id, type=Reminder.TYPE_TASK
         ).first()
@@ -69,7 +85,7 @@ def sweep_due_reminders():
             type=Reminder.TYPE_TASK,
             subject=t.subject,
             content=t.content,
-            fire_at=task_dt,
+            fire_at=fire_at,
             lead_minutes=setting.lead_minutes,
         ))
         created += 1

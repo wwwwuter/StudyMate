@@ -28,45 +28,26 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # ---- JWT ----
-    # 优先读取 JWT_SECRET_KEY，回退到 JWT_SECRET / 默认值。
-    JWT_SECRET = os.getenv('JWT_SECRET_KEY') or os.getenv('JWT_SECRET', 'dev-jwt-secret')
-    JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', '72'))
+    # ---- Web 化（多租户网站部署）----
+    # 允许跨域的前端域名（逗号分隔）。生产环境务必设为你的前端站域名，
+    # 不要用 '*'（会暴露凭据且浏览器在带凭据时拒绝）。与前端同源部署时填 '*' 也可。
+    CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*')
+    # 是否对存储的学生第三方 API Key 做静态加密（Fernet，密钥派生自 SECRET_KEY）。
+    # 网站部署强烈建议设为 true；桌面版默认 false（明文，仅本机）。
+    AI_KEY_ENCRYPT = os.getenv('AI_KEY_ENCRYPT', 'false').lower() in ('1', 'true', 'yes')
 
-    # 双令牌策略：access token 短期有效，refresh token 长期有效用于无感刷新。
-    JWT_ACCESS_EXPIRATION_HOURS = int(os.getenv('JWT_ACCESS_EXPIRATION_HOURS', '2'))
-    JWT_REFRESH_EXPIRATION_DAYS = int(os.getenv('JWT_REFRESH_EXPIRATION_DAYS', '30'))
+    # ---- AI 接入 ----
+    # 系统不持有任何全局 API Key：AI 所需的 Key / Base / Model 一律来自学生在
+    # 「设置」页保存的个人配置（user_ai_settings 表，本地存储）。
+    # 这里只保留与密钥无关的运行参数。
+    AI_TIMEOUT = int(os.getenv('AI_TIMEOUT', '60'))
+    AI_MAX_RETRIES = int(os.getenv('AI_MAX_RETRIES', '3'))
 
-    # ---- DeepSeek AI（后续阶段实现）----
-    DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
-    DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
-    # PDF 智能解析降级开关：无密钥时置 true 可走正则解析（离线 / CI 可用）
-    PDF_AI_MOCK = os.getenv('PDF_AI_MOCK', 'false').lower() in ('1', 'true', 'yes')
-
-    # ---- 微信小程序（预留）----
-    WECHAT_APP_ID = os.getenv('WECHAT_APP_ID', '')
-    WECHAT_APP_SECRET = os.getenv('WECHAT_APP_SECRET', '')
-
-    # ---- 扫码登录（桌面端 + 配套小程序）----
-    # 本地开发 / 测试无真实 AppID 时置 true：WeChatService 返回确定性 mock openid。
-    WECHAT_MOCK = os.getenv('WECHAT_MOCK', 'false').lower() in ('1', 'true', 'yes')
-    # 二维码票据有效期（秒）
-    LOGIN_QR_EXPIRE_SECONDS = int(os.getenv('LOGIN_QR_EXPIRE_SECONDS', '300'))
-    # 二维码承载的内容前缀（桌面端 / 小程序据此识别扫码登录意图）
-    QR_LOGIN_BASE_URL = os.getenv('QR_LOGIN_BASE_URL', 'studymate://login')
-
-    # ---- Phase 8 DeepSeek / RAG ----
-    DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
-    DEEPSEEK_TIMEOUT = int(os.getenv('DEEPSEEK_TIMEOUT', '60'))
-    DEEPSEEK_MAX_RETRIES = int(os.getenv('DEEPSEEK_MAX_RETRIES', '3'))
-
-    # RAG 知识库（本地 sentence-transformers 向量化 + FAISS 磁盘索引）
-    RAG_EMBEDDING_MODEL = os.getenv('RAG_EMBEDDING_MODEL', 'shibing624/text2vec-base-chinese')
-    RAG_CHUNK_SIZE = int(os.getenv('RAG_CHUNK_SIZE', '400'))
-    RAG_CHUNK_OVERLAP = int(os.getenv('RAG_CHUNK_OVERLAP', '80'))
-    RAG_TOP_K = int(os.getenv('RAG_TOP_K', '4'))
-    RAG_SIM_THRESHOLD = float(os.getenv('RAG_SIM_THRESHOLD', '0.25'))
-    RAG_INDEX_DIR = os.getenv('RAG_INDEX_DIR', os.path.join(BASE_DIR, 'data', 'rag'))
+    # ---- 上传限制 ----
+    # 单次上传资料文件大小上限（MB），环境变量 MAX_UPLOAD_SIZE 可覆盖。
+    # 设为 0 表示不限制（不推荐，大文件会占满内存）。
+    MAX_UPLOAD_SIZE = int(os.getenv('MAX_UPLOAD_SIZE', '16')) * 1024 * 1024
+    MAX_CONTENT_LENGTH = MAX_UPLOAD_SIZE or None
 
 
 class DevelopmentConfig(Config):
@@ -86,6 +67,8 @@ REMINDER_SWEEP_INTERVAL = int(os.getenv('REMINDER_SWEEP_INTERVAL', '60'))
 REMINDER_GRACE_MINUTES = int(os.getenv('REMINDER_GRACE_MINUTES', '2'))
 # 单次扫描只向前看这么久，避免无谓遍历；需大于最大提前量
 REMINDER_MAX_LOOKAHEAD = int(os.getenv('REMINDER_MAX_LOOKAHEAD', '120'))
+# 无具体开始时间的任务（如按艾宾浩斯铺排的日期型任务）默认在此整点触发提醒
+REMINDER_DEFAULT_HOUR = int(os.getenv('REMINDER_DEFAULT_HOUR', '9'))
 
 
 config_map = {

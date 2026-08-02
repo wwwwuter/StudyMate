@@ -1,20 +1,15 @@
-"""Phase 5 计时系统 + 升级方向 U3(RAG)/U5(字段) 测试。"""
-import io
-
-from app.extensions import db
-from models.record import StudyRecord
-from models.material import Material
+"""计时系统测试：正计时 / 倒计时 / 番茄钟 + 历史与统计 + 任务扩展字段。"""
 from models.user import User
 
 
-def _login(client, code='timer_user'):
-    r = client.post('/api/auth/wechat/login', json={'code': code})
-    token = r.get_json()['data']['token']['access_token']
-    return {'Authorization': f'Bearer {token}'}
+def _login(client, username='timer_user'):
+    r = client.post('/api/auth/register', json={'username': username, 'password': 'pw123456'})
+    assert r.status_code == 201, r.get_json()
+    return {'Authorization': f"Bearer {r.get_json()['data']['token']}"}
 
 
-def _uid(client, code='timer_user'):
-    return User.query.filter_by(wechat_openid=code).first().id
+def _uid(client, username='timer_user'):
+    return User.query.filter_by(username=username).first().id
 
 
 # ---------------------- 计时系统 ----------------------
@@ -90,35 +85,3 @@ def test_task_fields_priority_tags(client):
     # 更新标签
     r3 = client.put(f'/api/tasks/{tid}', json={'tags': '冲刺'}, headers=h)
     assert r3.get_json()['data']['tags'] == '冲刺'
-
-
-# ---------------------- U3 RAG 关键词 MVP ----------------------
-def test_material_upload_and_match(client):
-    h = _login(client)
-    # 上传资料（multipart：用 data 传文件元组）
-    data = {
-        'title': 'OS笔记',
-        'file': (io.BytesIO('操作系统 进程调度 死锁 内存管理'.encode('utf-8')), 'os.txt'),
-    }
-    r = client.post('/api/materials', data=data,
-                    content_type='multipart/form-data', headers=h)
-    assert r.status_code == 201, r.get_json()
-
-    # 检索与「进程调度」相关
-    r2 = client.post('/api/materials/match', json={'query': '进程调度与死锁'}, headers=h)
-    assert r2.status_code == 200
-    res = r2.get_json()['data']
-    assert len(res) >= 1
-    assert res[0]['score'] > 0
-    assert 'OS笔记' in res[0]['title']
-
-
-def test_material_keyword_retrieve_pure():
-    """纯函数：中文二元组重叠打分。"""
-    from ai.rag import RAGService
-    mats = [
-        type('M', (), {'id': 1, 'title': '高数', 'content': '极限 导数 中值定理'})(),
-        type('M', (), {'id': 2, 'title': '英语', 'content': '阅读理解 长难句'})(),
-    ]
-    res = RAGService.keyword_retrieve('导数与中值定理', mats)
-    assert res and res[0]['id'] == 1

@@ -1,6 +1,8 @@
 """学习计划业务层。
 
-承载学习任务的 CRUD 与 Excel/JSON/PDF 导入编排，保持路由轻量、可单测。
+只承载学习任务的 CRUD 与字段校验，保持路由轻量、可单测。
+计划文件的导入统一走 `/api/plans/parse` + `/api/plans/confirm`（AI 解析，
+使用用户在「设置」页配置的 Key），这里不提供任何本地导入 / 降级入口。
 所有函数以 user_id 做数据隔离，路由层仅负责 HTTP 编解码。
 """
 from datetime import datetime, date, time
@@ -8,7 +10,6 @@ from datetime import datetime, date, time
 from app.extensions import db
 from models.task import StudyTask
 from utils.subject_utils import normalize_subject
-from parser import pdf_parser
 
 
 # ------------------------- 解析辅助 -------------------------
@@ -148,7 +149,12 @@ def list_tasks(user_id, filters=None):
         query = query.filter_by(status=filters['status'])
     if filters.get('keyword'):
         like = f"%{filters['keyword']}%"
-        query = query.filter(StudyTask.content.like(like))
+        query = query.filter(
+            db.or_(
+                StudyTask.subject.ilike(like),
+                StudyTask.content.ilike(like),
+            )
+        )
 
     query = query.order_by(StudyTask.date, StudyTask.start_time)
 
@@ -222,87 +228,94 @@ def delete_task(user_id, task_id):
     return True
 
 
-# ------------------------- 导入 -------------------------
-def _persist_imported(user_id, tasks):
-    """将解析器产出的对象落库，校正 user_id 与非法状态。
-
-    去重（幂等）：同一用户下已存在 (date, subject, content, start_time)
-    完全相同的任务则跳过，避免重复导入产生重复行。
-    """
-    existing = {
-        (t.date, t.subject, t.content, t.start_time)
-        for t in StudyTask.query.filter_by(user_id=user_id).all()
-    }
-    valid = []
+def bulk_delete(user_id, task_ids):
+    """批量删除属于该用户的任务，返回实际删除条数（越权 id 会被忽略）。"""
+    if not task_ids:
+        return 0
+    ids = [int(i) for i in task_ids if str(i).isdigit()]
+    if not ids:
+        return 0
+    tasks = StudyTask.query.filter(
+        StudyTask.user_id == user_id,
+        StudyTask.id.in_(ids),
+    ).all()
+    count = len(tasks)
     for t in tasks:
-        t.user_id = user_id
-        if not StudyTask.is_valid_status(t.status):
-            t.status = StudyTask.STATUS_PENDING
-        key = (t.date, t.subject, t.content, t.start_time)
-        if key in existing:
-            continue
-        existing.add(key)
-        valid.append(t)
-    if valid:
-        db.session.add_all(valid)
-        db.session.commit()
-    return valid
+        db.session.delete(t)
+    db.session.commit()
+    return count
 
 
-def import_from_excel(user_id, file_storage):
-    from parser.excel_parser import parse_excel_tasks
-    return _persist_imported(user_id, parse_excel_tasks(file_storage, user_id))
+def _apply_criteria(query, criteria):
+    """根据条件构建查询，返回 (query, has_criterion)。"""
+    has_criterion = False
+
+    subject = normalize_subject(criteria.get('subject'))
+    if subject:
+        query = query.filter_by(subject=subject)
+        has_criterion = True
+
+    start_date = _parse_date(criteria.get('start_date'))
+    end_date = _parse_date(criteria.get('end_date'))
+    if start_date:
+        query = query.filter(StudyTask.date >= start_date)
+        has_criterion = True
+    if end_date:
+        query = query.filter(StudyTask.date <= end_date)
+        has_criterion = True
+
+    start_time = _parse_time(criteria.get('start_time'))
+    end_time = _parse_time(criteria.get('end_time'))
+    if start_time and end_time:
+        # 时间段重叠：任务的起止时间与给定区间有交集
+        query = query.filter(
+            StudyTask.start_time.isnot(None),
+            StudyTask.end_time.isnot(None),
+            StudyTask.start_time < end_time,
+            StudyTask.end_time > start_time,
+        )
+        has_criterion = True
+    elif start_time:
+        query = query.filter(StudyTask.start_time == start_time)
+        has_criterion = True
+    elif end_time:
+        query = query.filter(StudyTask.end_time == end_time)
+        has_criterion = True
+
+    status = criteria.get('status')
+    if status:
+        query = query.filter_by(status=status)
+        has_criterion = True
+
+    source = criteria.get('plan_source')
+    if source:
+        if source == 'uploaded':
+            query = query.filter(StudyTask.plan_source != StudyTask.SOURCE_MANUAL)
+        else:
+            query = query.filter_by(plan_source=source)
+        has_criterion = True
+
+    return query, has_criterion
 
 
-def import_from_json(user_id, file_storage):
-    from parser.json_parser import parse_json_tasks
-    return _persist_imported(user_id, parse_json_tasks(file_storage, user_id))
+def count_by_criteria(user_id, criteria):
+    """统计符合删除条件的任务数量（不删除）。"""
+    query = StudyTask.query.filter_by(user_id=user_id)
+    query, has_criterion = _apply_criteria(query, criteria)
+    if not has_criterion:
+        raise ValueError('请至少指定一个删除条件')
+    return query.count()
 
 
-def import_from_pdf(user_id, file_storage):
-    try:
-        from parser.pdf_parser import parse_pdf_tasks
-    except ImportError:
-        raise ValueError('PDF 解析依赖未安装，请先 pip install pdfminer.six')
-    return _persist_imported(user_id, parse_pdf_tasks(file_storage, user_id))
-
-
-def preview_pdf_ai(user_id, file_storage):
-    """智能解析预览（U2 人工复核）：提取文本 → AI 识别任务 → 返回结构化列表（不落库）。
-
-    每条含 date（相对/歧义时为 null）、subject、content、start_time、end_time、
-    status、confidence、reason、date_note，便于前端展示置信度并允许用户修正后落库。
-    AI 层在无密钥且未开启 PDF_AI_MOCK 时会抛出 ValueError，由路由转成明确错误。
-    """
-    try:
-        if pdf_parser.is_scanned_pdf(file_storage):
-            raise ValueError(
-                '该 PDF 未检测到文本层，疑似扫描件/图片型文档。'
-                '真实 OCR（图片转文字）识别需在后续阶段接入 paddleocr 等引擎，'
-                '当前暂不支持扫描件解析。'
-            )
-    except Exception:
-        # 扫描检测失败（如依赖缺失）时跳过，直接进入 AI 解析流程
-        pass
-    text = pdf_parser.extract_pdf_text(file_storage)
-    from ai.service import AIService
-    return AIService().extract_tasks(text, user_id)
-
-
-def confirm_pdf_ai(user_id, items):
-    """将人工复核后的任务列表落库（校验 + 去重）。
-
-    返回 (persisted_tasks, skipped_count)。相对日期等无效条目在校验阶段被跳过，
-    因此前端应在确认前补全 date。
-    """
-    if not isinstance(items, list):
-        raise ValueError('任务列表应为数组')
-    valid = []
-    skipped = 0
-    for item in items:
-        try:
-            valid.append(_build_task(user_id, item, StudyTask.SOURCE_PDF))
-        except ValueError:
-            skipped += 1
-    persisted = _persist_imported(user_id, valid)
-    return persisted, skipped
+def delete_by_criteria(user_id, criteria):
+    """按条件批量删除任务，返回删除条数。"""
+    query = StudyTask.query.filter_by(user_id=user_id)
+    query, has_criterion = _apply_criteria(query, criteria)
+    if not has_criterion:
+        raise ValueError('请至少指定一个删除条件')
+    tasks = query.all()
+    count = len(tasks)
+    for t in tasks:
+        db.session.delete(t)
+    db.session.commit()
+    return count

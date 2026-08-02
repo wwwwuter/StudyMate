@@ -1,37 +1,35 @@
-"""Phase 8 提示词管理测试。"""
+"""提示词管理测试（仅保留计划解析所需的三个模板）。"""
+import pytest
+
 from ai.prompt_manager import PromptManager
 
 
 def test_render_replaces_sentinel():
     pm = PromptManager()
-    out = pm.render('daily_summary', INPUT_DATA='数据X')
+    out = pm.render('pdf_task_extract', TEXT='数据X')
     assert '数据X' in out
-    assert '<<<' not in out
+    assert '<<<TEXT>>>' not in out
 
 
 def test_render_missing_var_keeps_sentinel():
     pm = PromptManager()
-    out = pm.render('daily_summary')  # 未提供 INPUT_DATA
-    assert '<<<INPUT_DATA>>>' in out
+    out = pm.render('pdf_task_extract')  # 未提供 TEXT
+    assert '<<<TEXT>>>' in out
 
 
-def test_list_prompts_includes_all_keys():
+def test_list_prompts_only_plan_templates():
     pm = PromptManager()
     keys = {p['key'] for p in pm.list_prompts()}
-    assert {
-        'daily_summary', 'plan_optimize', 'chat',
-        'rag_chat', 'learning_report', 'pdf_task_extract',
-    } <= keys
+    assert keys == {'pdf_task_extract', 'docx_task_extract', 'plan_vision'}
 
 
-def test_pdf_extract_sentinel():
+def test_docx_extract_sentinel():
     pm = PromptManager()
-    out = pm.render('pdf_task_extract', TEXT='文本Y')
+    out = pm.render('docx_task_extract', TEXT='文本Y')
     assert '文本Y' in out and '<<<TEXT>>>' not in out
 
 
-def test_rag_chat_sentinels():
+def test_unknown_prompt_raises():
     pm = PromptManager()
-    out = pm.render('rag_chat', CONTEXT='上下文', QUESTION='问题')
-    assert '上下文' in out and '问题' in out
-    assert '<<<CONTEXT>>>' not in out and '<<<QUESTION>>>' not in out
+    with pytest.raises(KeyError):
+        pm.get('rag_chat')

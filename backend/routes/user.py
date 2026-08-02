@@ -5,13 +5,10 @@ URL 前缀：/api/user（在 create_app 中注册）
 from flask import Blueprint, jsonify, request
 
 from app.extensions import db
-from utils.jwt_utils import login_required
+from utils.local_auth import login_required
 from models.user import User
 
 user_bp = Blueprint('user', __name__)
-
-# 允许客户端更新的字段（白名单，防止越权写入 openid 等内部字段）
-_EDITABLE_FIELDS = {'nickname', 'avatar', 'phone', 'gender', 'country', 'province', 'city'}
 
 
 @user_bp.route('/info', methods=['GET'])
@@ -21,16 +18,17 @@ def get_user_info(current_user):
     return jsonify({'code': 200, 'data': current_user.to_dict()})
 
 
-@user_bp.route('/profile', methods=['PUT'])
+@user_bp.route('/password', methods=['PUT'])
 @login_required
-def update_profile(current_user):
-    """更新当前用户资料（昵称 / 头像 / 手机号 / 性别 / 地区）。"""
+def change_password(current_user):
+    """修改本地账号密码。body: { old_password, new_password }。"""
     data = request.get_json(silent=True) or {}
-    changed = False
-    for key, value in data.items():
-        if key in _EDITABLE_FIELDS and value is not None:
-            setattr(current_user, key, value)
-            changed = True
-    if changed:
-        db.session.commit()
-    return jsonify({'code': 200, 'message': '资料已更新', 'data': current_user.to_dict()})
+    old_p = data.get('old_password', '')
+    new_p = data.get('new_password', '')
+    if not current_user.check_password(old_p):
+        return jsonify({'code': 400, 'message': '原密码错误'}), 400
+    if len(new_p) < 6:
+        return jsonify({'code': 400, 'message': '新密码至少 6 位'}), 400
+    current_user.password_hash, current_user.salt = User.hash_password(new_p)
+    db.session.commit()
+    return jsonify({'code': 200, 'message': '密码已修改'})

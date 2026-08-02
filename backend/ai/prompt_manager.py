@@ -7,21 +7,15 @@ logger = logging.getLogger(__name__)
 
 # 内置兜底提示词（与 prompts/ 目录文件内容一致；文件优先，缺文件时回退这里）
 from ai.prompt import (
-    DAILY_SUMMARY_PROMPT,
-    PLAN_OPTIMIZE_PROMPT,
-    CHAT_PROMPT,
-    RAG_CHAT_PROMPT,
-    LEARNING_REPORT_PROMPT,
     PDF_TASK_EXTRACT_PROMPT,
+    DOCX_TASK_EXTRACT_PROMPT,
+    PLAN_VISION_PROMPT,
 )
 
 _BUILTIN: Dict[str, str] = {
-    'daily_summary': DAILY_SUMMARY_PROMPT,
-    'plan_optimize': PLAN_OPTIMIZE_PROMPT,
-    'chat': CHAT_PROMPT,
-    'rag_chat': RAG_CHAT_PROMPT,
-    'learning_report': LEARNING_REPORT_PROMPT,
     'pdf_task_extract': PDF_TASK_EXTRACT_PROMPT,
+    'docx_task_extract': DOCX_TASK_EXTRACT_PROMPT,
+    'plan_vision': PLAN_VISION_PROMPT,
 }
 
 _SENTINEL_RE = re.compile(r'<<<\s*([A-Z0-9_]+)\s*>>>')

@@ -10,9 +10,9 @@ from utils.time_utils import utcnow
 
 
 def _login(client):
-    r = client.post('/api/auth/wechat/login', json={'code': 'reminder-test'})
-    token = r.get_json()['data']['token']['access_token']
-    return {'Authorization': f'Bearer {token}'}
+    r = client.post('/api/auth/register', json={'username': 'reminder_user', 'password': 'pw123456'})
+    assert r.status_code == 201, r.get_json()
+    return {'Authorization': f"Bearer {r.get_json()['data']['token']}"}
 
 
 def _post_task(client, headers, date_str, start_str, subject='数学', content='极限'):

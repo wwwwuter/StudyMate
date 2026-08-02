@@ -1,142 +1,139 @@
+"""AI 接入设置路由。
+
+系统不持有任何全局 API Key —— 所有 AI 能力使用的 Key 都由学生在「设置」页
+自行填写，仅保存在本机数据库（user_ai_settings）。本模块只负责这份配置的
+读取与保存，以及基于用户数据的 AI 学习分析。
+"""
 from flask import Blueprint, request, jsonify
-from models.analysis import AIAnalysis
+from datetime import date
+
+from models.ai_setting import UserAISetting, DEFAULT_API_BASE, DEFAULT_MODEL
 from models.task import StudyTask
-from models.record import StudyRecord
-from app.extensions import db
-from utils.jwt_utils import login_required
-from ai.service import AIService
+from models.timer_session import TimerSession
+from utils.local_auth import login_required
+from sqlalchemy import func
 
 ai_bp = Blueprint('ai', __name__)
-ai_service = AIService()
 
 
-@ai_bp.route('/daily-summary', methods=['POST'])
+@ai_bp.route('/key-settings', methods=['GET'])
 @login_required
-def daily_summary(current_user):
-    """每日学习总结"""
-    data = request.get_json()
-    date_str = data.get('date')
+def get_key_settings(current_user):
+    """读取当前学生的 AI 接入设置（Key 脱敏返回）。"""
+    s = UserAISetting.get_for_user(current_user.id)
+    if s is None:
+        return jsonify({'code': 200, 'data': {
+            'api_base': DEFAULT_API_BASE, 'model': DEFAULT_MODEL,
+            'enabled': True, 'has_key': False, 'api_key_masked': None,
+        }})
+    return jsonify({'code': 200, 'data': s.to_dict()})
 
-    from datetime import datetime, date
-    if date_str:
-        query_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-    else:
-        query_date = date.today()
 
-    # 获取当天任务
-    tasks = StudyTask.query.filter_by(user_id=current_user.id, date=query_date).all()
-    # 获取当天记录
-    records = StudyRecord.query.filter(
-        StudyRecord.user_id == current_user.id,
-        StudyRecord.start_time >= datetime.combine(query_date, datetime.min.time()),
-        StudyRecord.start_time < datetime.combine(query_date, datetime.max.time()),
-    ).all()
+@ai_bp.route('/key-settings', methods=['POST'])
+@login_required
+def save_key_settings(current_user):
+    """保存当前学生的 AI 接入设置（Key 仅存本地，开发者不持有）。
 
-    total_seconds = sum(r.duration for r in records if r.duration)
-    task_summary = "\n".join([
-        f"- [{t.status}] {t.subject}: {t.content} ({t.start_time}-{t.end_time})"
-        for t in tasks
-    ])
+    注意：含 `*` 的掩码串会被 save_for_user 视为「未修改」而忽略，
+    避免前端回显的脱敏值覆盖掉真实 Key。
+    """
+    data = request.get_json(silent=True) or {}
+    api_key = (data.get('api_key') or '').strip() or None
+    api_base = (data.get('api_base') or '').strip() or None
+    model = (data.get('model') or '').strip() or None
+    enabled = data.get('enabled')
+    s = UserAISetting.save_for_user(
+        current_user.id, api_key=api_key, api_base=api_base, model=model, enabled=enabled,
+    )
+    return jsonify({'code': 200, 'message': '已保存', 'data': s.to_dict()})
 
-    input_text = f"日期：{query_date}\n学习任务：\n{task_summary}\n学习时长：{round(total_seconds/3600, 1)}小时"
+
+@ai_bp.route('/analyze', methods=['POST'])
+@login_required
+def analyze(current_user):
+    """基于当日 StudyTask + TimerSession 生成 AI 学习分析（总结 / 问题 / 建议）。
+
+    仅使用用户在「设置」页配置的 Key；未配置或无效直接返回 400 引导去设置页。
+    """
+    from ai.service import AIService
 
     try:
-        output = ai_service.daily_summary(input_text)
-    except Exception as e:
-        return jsonify({'code': 500, 'message': f'AI 服务调用失败: {str(e)}'}), 500
-
-    analysis = AIAnalysis(
-        user_id=current_user.id,
-        analysis_type='daily_summary',
-        input_data=input_text,
-        output_data=output,
-    )
-    db.session.add(analysis)
-    db.session.commit()
-
-    return jsonify({'code': 200, 'data': analysis.to_dict()})
-
-
-@ai_bp.route('/plan-optimize', methods=['POST'])
-@login_required
-def plan_optimize(current_user):
-    """学习计划优化"""
-    from datetime import date, timedelta, datetime
+        client = AIService().require_client(current_user.id)
+    except ValueError as e:
+        return jsonify({'code': 400, 'message': str(e)}), 400
 
     today = date.today()
-    week_ago = today - timedelta(days=7)
-
-    tasks = StudyTask.query.filter(
-        StudyTask.user_id == current_user.id,
-        StudyTask.date >= week_ago,
-        StudyTask.date <= today,
+    tasks = StudyTask.query.filter_by(user_id=current_user.id, date=today).all()
+    sessions = TimerSession.query.filter(
+        TimerSession.user_id == current_user.id,
+        TimerSession.status == TimerSession.STATUS_DONE,
+        func.date(TimerSession.ended_at) == today.isoformat(),
     ).all()
 
-    records = StudyRecord.query.filter(
-        StudyRecord.user_id == current_user.id,
-        StudyRecord.start_time >= datetime.combine(week_ago, datetime.min.time()),
-    ).all()
+    total = len(tasks)
+    done = sum(1 for t in tasks if t.status == StudyTask.STATUS_DONE)
+    actual_by_subject: dict[str, int] = {}
+    for s in sessions:
+        subj = '未关联'
+        if s.task_id:
+            t = StudyTask.query.get(s.task_id)
+            if t:
+                subj = t.subject
+        actual_by_subject[subj] = actual_by_subject.get(subj, 0) + (s.duration_seconds or 0)
 
-    # 统计各科数据
-    subject_stats = {}
+    lines = [f'今日任务共 {total} 项，已完成 {done} 项。']
     for t in tasks:
-        if t.subject not in subject_stats:
-            subject_stats[t.subject] = {'total': 0, 'done': 0, 'seconds': 0}
-        subject_stats[t.subject]['total'] += 1
-        if t.status == 'done':
-            subject_stats[t.subject]['done'] += 1
+        plan = t.estimated_minutes or 0
+        lines.append(f'- {t.subject} / {t.content} [{"已完成" if t.status == StudyTask.STATUS_DONE else "未完成"}] 计划约 {plan} 分钟')
+    lines.append('今日实际专注时长（按科目，单位分钟）：')
+    if actual_by_subject:
+        for k, v in actual_by_subject.items():
+            lines.append(f'- {k}: {round(v / 60)} 分钟')
+    else:
+        lines.append('- （暂无计时记录）')
 
-    for r in records:
-        if r.task_id:
-            task = StudyTask.query.get(r.task_id)
-            if task and task.subject in subject_stats:
-                subject_stats[task.subject]['seconds'] += r.duration or 0
-
-    stats_text = ""
-    for subj, s in subject_stats.items():
-        rate = round(s['done'] / s['total'] * 100, 1) if s['total'] > 0 else 0
-        hours = round(s['seconds'] / 3600, 1)
-        stats_text += f"{subj}: 完成率{rate}%, 学习时长{hours}小时\n"
-
-    input_text = f"近7天学习统计：\n{stats_text}"
+    prompt = (
+        '你是考研学习教练。下面是某学生今日的学习计划执行情况，请基于数据给出分析。\n'
+        + '\n'.join(lines)
+        + '\n\n请只输出如下 JSON（不要 Markdown 围栏，不要额外说明）：\n'
+        '{"summary":"今日学习总结（1-2句）",'
+        '"problems":"发现的问题（如某科目投入不足、完成率低、时间分配不均）",'
+        '"suggestions":"可执行的调整建议（如明天增加某科目 X 分钟）"}'
+    )
+    messages = [
+        {'role': 'system', 'content': '你是严谨的学习教练，只输出 JSON。'},
+        {'role': 'user', 'content': prompt},
+    ]
 
     try:
-        output = ai_service.plan_optimize(input_text)
+        raw = client.chat(messages, temperature=0.4, max_tokens=1024)
     except Exception as e:
-        return jsonify({'code': 500, 'message': f'AI 服务调用失败: {str(e)}'}), 500
+        return jsonify({'code': 500, 'message': f'AI 分析失败：{e}'}), 500
 
-    analysis = AIAnalysis(
-        user_id=current_user.id,
-        analysis_type='plan_optimization',
-        input_data=input_text,
-        output_data=output,
-    )
-    db.session.add(analysis)
-    db.session.commit()
-
-    return jsonify({'code': 200, 'data': analysis.to_dict()})
+    result = _parse_analyze(raw)
+    return jsonify({'code': 200, 'data': result})
 
 
-@ai_bp.route('/chat', methods=['POST'])
-@login_required
-def chat(current_user):
-    """AI 学习助手对话"""
-    data = request.get_json()
-    if not data or 'message' not in data:
-        return jsonify({'code': 400, 'message': '缺少消息内容'}), 400
-
+def _parse_analyze(raw: str) -> dict:
+    """从模型输出稳健解析出 {summary, problems, suggestions}。"""
+    empty = {'summary': '', 'problems': '', 'suggestions': ''}
+    if not raw:
+        return empty
+    s = raw.strip()
+    if s.startswith('```'):
+        s = s[s.find('{', 0):]
+    start = s.find('{')
+    end = s.rfind('}')
+    if start == -1 or end == -1 or end <= start:
+        # 退化：把整段当成总结
+        return {'summary': raw.strip(), 'problems': '', 'suggestions': ''}
     try:
-        output = ai_service.chat(data['message'])
-    except Exception as e:
-        return jsonify({'code': 500, 'message': f'AI 服务调用失败: {str(e)}'}), 500
-
-    analysis = AIAnalysis(
-        user_id=current_user.id,
-        analysis_type='qa',
-        input_data=data['message'],
-        output_data=output,
-    )
-    db.session.add(analysis)
-    db.session.commit()
-
-    return jsonify({'code': 200, 'data': {'answer': output}})
+        import json
+        data = json.loads(s[start:end + 1])
+    except Exception:
+        return {'summary': raw.strip(), 'problems': '', 'suggestions': ''}
+    return {
+        'summary': str(data.get('summary', '') or ''),
+        'problems': str(data.get('problems', '') or ''),
+        'suggestions': str(data.get('suggestions', '') or ''),
+    }

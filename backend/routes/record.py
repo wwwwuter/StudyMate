@@ -3,7 +3,7 @@ from datetime import datetime, date, timedelta
 from flask import Blueprint, request, jsonify
 from models.record import StudyRecord
 from app.extensions import db
-from utils.jwt_utils import login_required
+from utils.local_auth import login_required
 
 record_bp = Blueprint('record', __name__)
 

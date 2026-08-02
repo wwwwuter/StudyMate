@@ -1,67 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 配置：StudyMate 桌面端后端 exe。
 
-构建：cd backend && pyinstaller studymate-backend.spec --noconfirm
-产物：dist/studymate-backend/studymate-backend.exe（onedir，启动快、体积可控）
-
-体积策略：排除 torch / sentence-transformers / faiss / pandas 等超重依赖。
-RAG 服务对向量模型是懒加载 + 失败自动回退关键词检索，排除后功能仍可用
-（检索质量降级为关键词匹配）。若需完整向量检索，删除相应 excludes 重打
-（体积将 +2GB 以上）。
-"""
-
-from PyInstaller.utils.hooks import collect_submodules
-
-hiddenimports = (
-    ['desktop_run', 'waitress']
-    + collect_submodules('models')
-    + collect_submodules('routes')
-    + collect_submodules('services')
-    + collect_submodules('parser')
-    + collect_submodules('ai')
-    + collect_submodules('utils')
-    + [
-        # Flask / SQLAlchemy 生态
-        'flask_sqlalchemy', 'flask_migrate', 'flask_cors',
-        'sqlalchemy.dialects.sqlite', 'sqlalchemy.dialects.mysql',
-        'pymysql',
-        # APScheduler（显式 Trigger 类，但保险起见收全）
-        'apscheduler.schedulers.background',
-        'apscheduler.triggers.interval',
-        # 文件解析（延迟导入，PyInstaller 静态分析可能漏收）
-        'openpyxl', 'xlrd', 'pypdf', 'pdfminer.six', 'pdfminer.high_level',
-        # AI 客户端
-        'openai',
-        # 其他延迟导入
-        'jwt', 'dotenv', 'requests',
-    ]
-)
 
 a = Analysis(
-    ['desktop_run.py'],
-    pathex=['.'],
+    ['D:\\StudyMate\\backend\\desktop_run.py'],
+    pathex=['D:\\StudyMate\\backend'],
     binaries=[],
-    datas=[
-        ('prompts', 'prompts'),  # 文件化提示词（PromptManager 优先读文件）
-    ],
-    hiddenimports=hiddenimports,
+    datas=[('D:\\StudyMate\\backend\\app', 'app'), ('D:\\StudyMate\\backend\\models', 'models'), ('D:\\StudyMate\\backend\\routes', 'routes'), ('D:\\StudyMate\\backend\\services', 'services'), ('D:\\StudyMate\\backend\\ai', 'ai'), ('D:\\StudyMate\\backend\\utils', 'utils'), ('D:\\StudyMate\\backend\\parser', 'parser')],
+    hiddenimports=['models', 'flask', 'flask_cors', 'flask_sqlalchemy', 'flask_migrate', 'waitress', 'werkzeug', 'jinja2', 'sqlalchemy', 'alembic', 'pymysql', 'apscheduler', 'apscheduler.schedulers.background', 'apscheduler.jobstores.sqlalchemy', 'apscheduler.triggers.cron', 'openai', 'pypdf', 'pdfminer', 'pdfminer.high_level', 'docx', 'lxml', 'pydantic', 'dotenv', 'requests', 'httpx', 'aiohttp', 'tzlocal', 'pytz', 'cryptography'],
     hookspath=[],
+    hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        # ---- 超重 AI 依赖：RAG 自动回退关键词检索 ----
-        'torch', 'torchvision', 'torchaudio',
-        'sentence_transformers', 'transformers', 'faiss',
-        'huggingface_hub', 'tokenizers', 'safetensors',
-        # ---- 未被后端使用的科学栈 ----
-        'pandas', 'matplotlib', 'scipy', 'sklearn', 'sympy', 'numba',
-        'PIL', 'cv2',
-        # ---- 开发/测试工具 ----
-        'pytest', 'IPython', 'jupyter', 'notebook',
-        'tkinter',
-    ],
+    excludes=['numpy', 'faiss', 'sentence_transformers', 'torch', 'transformers', 'langchain', 'langchain_core', 'langchain_text_splitters', 'pandas'],
     noarchive=False,
+    optimize=0,
 )
-
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -71,17 +23,22 @@ exe = EXE(
     exclude_binaries=True,
     name='studymate-backend',
     debug=False,
+    bootloader_ignore_signals=False,
     strip=False,
-    upx=False,
-    console=True,  # 保留控制台输出便于日志重定向（Electron spawn 捕获 stdout）
+    upx=True,
+    console=False,
     disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
 )
-
 coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
     strip=False,
-    upx=False,
+    upx=True,
+    upx_exclude=[],
     name='studymate-backend',
 )

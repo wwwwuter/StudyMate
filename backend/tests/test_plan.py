@@ -1,19 +1,16 @@
-"""Phase 3 学习计划系统接口测试。
+"""学习计划接口测试（本地账号鉴权）。
 
-基于 SQLite 内存库 + 真实 JWT（通过 mock 微信 code 登录获取），覆盖
-CRUD、批量创建、过滤、鉴权以及 Excel/JSON 导入。
+基于 SQLite 内存库 + 本地注册登录令牌，覆盖任务 CRUD、批量创建、过滤、
+分页、每日统计与字段校验。计划文件导入统一走 /api/plans/parse（AI 解析，
+需用户在「设置」页配置 Key），相关用例见 test_plan_parse.py。
 """
-import io
-import json
-
-import pytest
 
 
-def _login(client, code='plan_code'):
-    """用 mock 微信 code 登录换取 Bearer 头。"""
-    resp = client.post('/api/auth/wechat/login', json={'code': code})
-    assert resp.status_code == 200, resp.get_json()
-    token = resp.get_json()['data']['token']['access_token']
+def _login(client, username="plan_user"):
+    """注册本地账号并换取 Bearer 头。"""
+    resp = client.post('/api/auth/register', json={'username': username, 'password': 'pw123456'})
+    assert resp.status_code == 201, resp.get_json()
+    token = resp.get_json()['data']['token']
     return {'Authorization': f'Bearer {token}'}
 
 
@@ -154,39 +151,94 @@ def test_batch_invalid_item(client):
     assert resp.status_code == 400
 
 
-# ---- JSON 导入 ----
-def test_import_json(client):
+def test_batch_delete(client):
     h = _login(client)
-    payload = [
-        {'date': '2026-09-01', 'subject': '高数', 'content': '极限', 'start_time': '08:00', 'end_time': '10:00'},
-        {'date': '2026-09-02', 'subject': '英语', 'content': '单词', 'status': 'done'},
-    ]
-    data = {'file': (io.BytesIO(json.dumps(payload).encode('utf-8')), 'plan.json')}
-    resp = client.post('/api/tasks/import/json', data=data, headers=h, content_type='multipart/form-data')
-    assert resp.status_code == 200, resp.get_json()
-    assert resp.get_json()['data']['count'] == 2
-    # 归一化生效
-    assert resp.get_json()['data']['tasks'][0]['subject'] == '数学'
+    a = client.post('/api/tasks', json={'date': '2026-09-01', 'subject': '数学', 'content': 'A'}, headers=h).get_json()['data']['id']
+    b = client.post('/api/tasks', json={'date': '2026-09-01', 'subject': '英语', 'content': 'B'}, headers=h).get_json()['data']['id']
+    c = client.post('/api/tasks', json={'date': '2026-09-01', 'subject': '政治', 'content': 'C'}, headers=h).get_json()['data']['id']
+
+    # 缺 ids -> 400
+    assert client.delete('/api/tasks/batch', json={}, headers=h).status_code == 400
+
+    # 批量删除 a, b
+    resp = client.delete('/api/tasks/batch', json={'ids': [a, b]}, headers=h)
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['deleted'] == 2
+
+    # 删除后只剩 c
+    rows = client.get('/api/tasks?date=2026-09-01', headers=h).get_json()['data']
+    assert [r['id'] for r in rows] == [c]
 
 
-# ---- Excel 导入 ----
-def test_import_excel(client):
+# ---- 按条件删除 ----
+def test_delete_by_criteria(client):
     h = _login(client)
-    from openpyxl import Workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.append(['日期', '科目', '内容', '开始时间', '结束时间', '状态'])
-    ws.append(['2026-10-01', '数学', '线代', '09:00', '11:00', 'pending'])
-    ws.append(['2026-10-02', '英语', '作文', '14:00', '16:00'])
-    ws.append(['', '政治', '漏填日期应被跳过'])          # 无效行
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+    # 数学，8-1 08:30-10:30
+    client.post('/api/tasks', json={
+        'date': '2026-08-01', 'subject': '数学', 'content': 'A',
+        'start_time': '08:30', 'end_time': '10:30', 'status': 'pending',
+    }, headers=h)
+    # 数学，8-2 14:00-16:00
+    client.post('/api/tasks', json={
+        'date': '2026-08-02', 'subject': '数学', 'content': 'B',
+        'start_time': '14:00', 'end_time': '16:00', 'status': 'done',
+    }, headers=h)
+    # 英语，8-1 09:00-11:00
+    client.post('/api/tasks', json={
+        'date': '2026-08-01', 'subject': '英语', 'content': 'C',
+        'start_time': '09:00', 'end_time': '11:00', 'status': 'pending',
+    }, headers=h)
 
-    data = {'file': (buf, 'plan.xlsx')}
-    resp = client.post('/api/tasks/import/excel', data=data, headers=h, content_type='multipart/form-data')
-    assert resp.status_code == 200, resp.get_json()
-    assert resp.get_json()['data']['count'] == 2
+    # 按科目删除：删 2 条数学
+    resp = client.post('/api/tasks/delete-by-criteria', json={'subject': '数学'}, headers=h)
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['deleted'] == 2
+
+    # 重新建数据测试日期范围 + 时间段
+    client.post('/api/tasks', json={
+        'date': '2026-08-05', 'subject': '数学', 'content': 'D',
+        'start_time': '08:30', 'end_time': '10:30', 'status': 'pending',
+    }, headers=h)
+    client.post('/api/tasks', json={
+        'date': '2026-08-06', 'subject': '数学', 'content': 'E',
+        'start_time': '14:00', 'end_time': '16:00', 'status': 'pending',
+    }, headers=h)
+
+    # 日期范围 8-01 到 8-05，应删 D（8-5）和之前的英语 C（如果还在）
+    # 但 C 已在 8-1；数学已被删；所以只剩 C 和 E？
+    # 重新整理：当前剩余 C(8-1 英语) 和 D(8-5 数学) 和 E(8-6 数学)
+    resp = client.post('/api/tasks/delete-by-criteria', json={'start_date': '2026-08-01', 'end_date': '2026-08-05'}, headers=h)
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['deleted'] == 2  # C 和 D
+
+    # 预览：当前只剩 E(8-6 14:00-16:00)，按时间段 08:00-12:00 应匹配 0
+    resp = client.post('/api/tasks/delete-by-criteria/preview', json={'start_time': '08:00', 'end_time': '12:00'}, headers=h)
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['count'] == 0
+
+    # 无条件 -> 400
+    resp = client.post('/api/tasks/delete-by-criteria', json={}, headers=h)
+    assert resp.status_code == 400
+
+
+# ---- 区间过滤 ----
+def test_list_filter_by_keyword_matches_subject_and_content(client):
+    h = _login(client)
+    client.post('/api/tasks', json={'date': '2026-08-01', 'subject': '数学', 'content': '高数强化'}, headers=h)
+    client.post('/api/tasks', json={'date': '2026-08-01', 'subject': '英语', 'content': '数学词汇'}, headers=h)
+    client.post('/api/tasks', json={'date': '2026-08-01', 'subject': '政治', 'content': '马原'}, headers=h)
+
+    # 搜科目
+    resp = client.get('/api/tasks?keyword=数学', headers=h)
+    rows = resp.get_json()['data']
+    assert len(rows) == 2
+    assert {r['subject'] for r in rows} == {'数学', '英语'}
+
+    # 搜内容
+    resp = client.get('/api/tasks?keyword=马原', headers=h)
+    rows = resp.get_json()['data']
+    assert len(rows) == 1
+    assert rows[0]['subject'] == '政治'
 
 
 # ---- 区间过滤 ----
@@ -241,24 +293,6 @@ def test_create_invalid_time_range(client):
     assert resp.status_code == 400
 
 
-# ---- 导入去重（幂等）----
-def test_import_json_dedup(client):
-    h = _login(client)
-    payload = [{'date': '2026-09-05', 'subject': '数学', 'content': '真题', 'start_time': '09:00', 'end_time': '11:00'}]
-
-    def _post():
-        # 每次请求都用全新的流：Werkzeug 测试客户端会在请求后关闭文件对象
-        buf = io.BytesIO(json.dumps(payload).encode('utf-8'))
-        return client.post('/api/tasks/import/json', data={'file': (buf, 'plan.json')},
-                           headers=h, content_type='multipart/form-data')
-
-    r1 = _post()
-    assert r1.get_json()['data']['count'] == 1
-    # 重复导入同一份：应被去重，新增 0 条
-    r2 = _post()
-    assert r2.get_json()['data']['count'] == 0
-
-
 # ---- 分页 ----
 def test_list_pagination(client):
     h = _login(client)
@@ -272,189 +306,3 @@ def test_list_pagination(client):
     # 第二页
     resp2 = client.get('/api/tasks?date=2026-08-20&page=2&page_size=2', headers=h)
     assert len(resp2.get_json()['data']) == 2
-
-
-# ---- PDF 解析（mock extract_text，避免依赖真实 PDF 文件）----
-def test_parse_pdf_normalize_and_fallback(monkeypatch):
-    """PDF 解析：科目归一化 + 无时间段行应保留（时间置空），不整行丢弃。"""
-    # 模拟 pdfminer 提取出的文本
-    fake_text = (
-        "2026-09-01 高数 极限专题训练 08:00-10:00\n"
-        "2026-09-02 英语 单词背诵\n"          # 无时间段，应保留
-        "这行没有日期应被忽略\n"
-    )
-
-    import parser.pdf_parser as pp
-    import pdfminer.high_level as hl
-
-    def fake_extract(file, **kwargs):
-        return fake_text
-
-    # 解析器在调用时才 `from pdfminer.high_level import extract_text`，
-    # 故直接 patch 真实模块的 extract_text 即可。
-    monkeypatch.setattr(hl, 'extract_text', fake_extract)
-
-    tasks = pp.parse_pdf_tasks(None, user_id=1)
-    assert len(tasks) == 2
-    # 归一化：高数 -> 数学
-    assert tasks[0].subject == '数学'
-    assert tasks[0].start_time is not None and tasks[0].end_time is not None
-    # 无时间段行：科目英语(归一化) + 内容，时间置空
-    assert tasks[1].subject == '英语'
-    assert tasks[1].start_time is None and tasks[1].end_time is None
-    assert tasks[1].content == '单词背诵'
-
-
-# ---- Excel .xls 解析（mock xlrd.open_workbook，验证旧格式分支 + 日期转换）----
-def test_parse_excel_xls_branch(monkeypatch):
-    from datetime import date
-    """扩展名为 .xls 时走 xlrd 分支，且日期单元格应转为 date。"""
-    import io
-    import parser.excel_parser as ep
-
-    # 极简 xlrd stub
-    class _Cell:
-        def __init__(self, ctype, value):
-            self.ctype = ctype
-            self.value = value
-
-    class _Sheet:
-        def __init__(self, cells):
-            self._cells = cells
-            self.nrows = len(cells)
-            self.ncols = 3
-
-        def cell(self, r, c):
-            return self._cells[r][c]
-
-    class _Book:
-        datemode = 0
-
-        def __init__(self, cells):
-            self._sheet = _Sheet(cells)
-
-        def sheet_by_index(self, _):
-            return self._sheet
-
-    # 行：表头 + 1 条数据（日期用 xlrd 日期序列值 40000 ≈ 2009-07-06，仅验证能转成 date 类型）
-    xlrd_date = 40000
-    cells = [
-        [_Cell(0, '日期'), _Cell(0, '科目'), _Cell(0, '内容')],
-        [_Cell(3, xlrd_date), _Cell(1, '数学'), _Cell(1, '真题')],
-    ]
-
-    class _xlrd:
-        XL_CELL_DATE = 3
-        XL_CELL_EMPTY = 0
-
-        @staticmethod
-        def open_workbook(file_contents=None):
-            return _Book(cells)
-
-        class xldate:
-            @staticmethod
-            def xldate_as_datetime(v, _mode):
-                from datetime import date, datetime, timedelta
-                return datetime(1899, 12, 30) + timedelta(days=v)
-
-    monkeypatch.setattr('xlrd.open_workbook', _xlrd.open_workbook)
-
-    class FakeXls:
-        filename = 'plan.xls'
-
-        def read(self):
-            return b'dummy'
-
-    tasks = ep.parse_excel_tasks(FakeXls(), user_id=1)
-    assert len(tasks) == 1
-    assert tasks[0].subject == '数学'
-    assert isinstance(tasks[0].date, date)
-    assert tasks[0].content == '真题'
-
-
-# ---- PDF 智能解析（AI 识别任务，U2 预览/确认）----
-def test_import_pdf_ai_preview_and_confirm(client, monkeypatch):
-    """预览返回全部识别结果（含待确认/无效，不归一化）；确认后仅有效条落库并归一化。"""
-    h = _login(client)
-    sample = [
-        {'date': '2026-09-10', 'subject': '高数', 'content': '极限专题', 'start_time': '08:00', 'end_time': '10:00'},
-        {'date': '2026-09-11', 'subject': '英语', 'content': '单词'},
-        {'date': 'bad', 'subject': 'x', 'content': ''},  # 缺有效内容，确认时应被跳过
-    ]
-    import ai.service as svc
-    import parser.pdf_parser as pp
-    monkeypatch.setattr(svc.AIService, 'extract_tasks', lambda self, text, user_id=0: sample)
-    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: 'long enough text to bypass scan check xxxxxx')
-    monkeypatch.setattr(pp, 'is_scanned_pdf', lambda f: False)
-
-    class FakePdf:
-        filename = 'plan.pdf'
-        _buf = b'%PDF-1.4 scan'
-        _pos = 0
-
-        def read(self, size=-1):
-            if size is None or size < 0:
-                size = len(self._buf)
-            chunk = self._buf[self._pos:self._pos + size]
-            self._pos += len(chunk)
-            return chunk
-
-    # 预览：不落库，返回全部 3 条（含无效），且预览阶段未归一化
-    r = client.post('/api/tasks/import/pdf/ai', data={'file': (FakePdf(), 'plan.pdf')},
-                    headers=h, content_type='multipart/form-data')
-    assert r.status_code == 200, r.get_json()
-    preview = r.get_json()['data']
-    assert preview['count'] == 3
-    assert preview['tasks'][0]['subject'] == '高数'
-
-    # 确认落库：发送全部 3 条，无效条（缺有效内容）被跳过，'高数' 归一化为 '数学'
-    r2 = client.post('/api/tasks/import/pdf/ai/confirm', json=preview['tasks'], headers=h)
-    assert r2.status_code == 200, r2.get_json()
-    d = r2.get_json()['data']
-    assert d['count'] == 2
-    assert d['skipped'] == 1
-    subjects = {t['subject'] for t in d['tasks']}
-    assert '数学' in subjects
-
-
-def test_import_pdf_ai_relative_date_flagged(client, monkeypatch):
-    """相对日期/低置信度任务在预览中被标记 needs_review（U1+U2）。"""
-    h = _login(client)
-    sample = [
-        {'date': None, 'subject': '数学', 'content': '待确认日期', 'confidence': 0.4, 'date_note': '相对日期'},
-        {'date': '2026-09-12', 'subject': '英语', 'content': '阅读', 'confidence': 0.95},
-    ]
-    import ai.service as svc
-    import parser.pdf_parser as pp
-    monkeypatch.setattr(svc.AIService, 'extract_tasks', lambda self, text, user_id=0: sample)
-    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: 'long enough text to bypass scan check xxxxxx')
-    monkeypatch.setattr(pp, 'is_scanned_pdf', lambda f: False)
-
-    r = client.post('/api/tasks/import/pdf/ai',
-                    data={'file': (io.BytesIO(b'%PDF long enough text'), 'plan.pdf')},
-                    headers=h, content_type='multipart/form-data')
-    assert r.status_code == 200, r.get_json()
-    tasks = r.get_json()['data']['tasks']
-    assert tasks[0]['needs_review'] is True
-    assert tasks[1]['needs_review'] is False
-
-
-def test_import_pdf_ai_unavailable(client, monkeypatch):
-    """无 DeepSeek 密钥且未开 PDF_AI_MOCK 时，返回明确错误而非 500。"""
-    h = _login(client)
-    import ai.service as svc
-    import parser.pdf_parser as pp
-    monkeypatch.setattr(pp, 'extract_pdf_text', lambda f: 'long enough text to bypass scan check xxxxxx')
-    monkeypatch.setattr(pp, 'is_scanned_pdf', lambda f: False)
-    monkeypatch.setattr(svc.DeepSeekClient, 'is_available', lambda self: False)
-
-    r = client.post('/api/tasks/import/pdf/ai',
-                    data={'file': (io.BytesIO(b'%PDF long enough text'), 'plan.pdf')},
-                    headers=h, content_type='multipart/form-data')
-    assert r.status_code == 400
-    msg = r.get_json()['message']
-    assert 'DeepSeek' in msg or '未配置' in msg
-
-
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])

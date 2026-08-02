@@ -8,38 +8,30 @@
         </div>
         <div class="brand-text">
           <div class="brand-name">StudyMate</div>
-          <div class="brand-sub">智能考研学习助手</div>
+          <div class="brand-sub">专注计时学习助手</div>
         </div>
       </div>
 
       <el-menu :default-active="activeMenu" class="app-menu" router>
         <el-menu-item index="/">
-          <el-icon><Odometer /></el-icon>
-          <span>仪表盘</span>
+          <el-icon><HomeFilled /></el-icon>
+          <span>首页</span>
         </el-menu-item>
-        <el-menu-item index="/plan">
-          <el-icon><Calendar /></el-icon>
-          <span>学习计划</span>
+        <el-menu-item index="/upload">
+          <el-icon><Upload /></el-icon>
+          <span>上传计划</span>
         </el-menu-item>
         <el-menu-item index="/tasks">
           <el-icon><List /></el-icon>
-          <span>任务</span>
+          <span>今日计划</span>
         </el-menu-item>
         <el-menu-item index="/timer">
           <el-icon><Timer /></el-icon>
           <span>计时</span>
         </el-menu-item>
-        <el-menu-item index="/materials">
-          <el-icon><Files /></el-icon>
-          <span>资料库</span>
-        </el-menu-item>
-        <el-menu-item index="/ai">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>AI 知识库</span>
-        </el-menu-item>
         <el-menu-item index="/stats">
           <el-icon><DataLine /></el-icon>
-          <span>数据分析</span>
+          <span>学习记录</span>
         </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
@@ -50,7 +42,7 @@
       <div class="aside-foot">
         <div class="ai-chip">
           <el-icon><MagicStick /></el-icon>
-          <span>AI 已就绪</span>
+          <span>AI 计划识别已就绪</span>
         </div>
       </div>
     </el-aside>
@@ -61,14 +53,6 @@
         <div class="header-title">
           <h2>{{ pageTitle }}</h2>
           <p class="header-date">{{ todayText }}</p>
-        </div>
-
-        <div class="header-search">
-          <el-input
-            placeholder="搜索课程、资料、任务…"
-            :prefix-icon="Search"
-            clearable
-          />
         </div>
 
         <div class="header-actions">
@@ -95,6 +79,9 @@
       @update:visible="reminderVisible = $event"
       @saved="refreshCount"
     />
+
+    <!-- 前台运行时弹出的学习提醒 -->
+    <ReminderPopup />
   </el-container>
 </template>
 
@@ -102,22 +89,21 @@
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  Odometer, Calendar, List, ChatDotRound, DataLine, Setting,
-  MagicStick, Bell, Search, Timer, Files,
+  List, Upload, Timer, Setting, HomeFilled, DataLine,
+  MagicStick, Bell,
 } from '@element-plus/icons-vue'
 import ReminderSettings from '@/views/ReminderSettings.vue'
+import ReminderPopup from '@/views/ReminderPopup.vue'
 import { getPendingReminders } from '@/api/reminder'
 
 const route = useRoute()
 
 const titleMap: Record<string, string> = {
-  '/': '仪表盘',
-  '/plan': '学习计划',
-  '/tasks': '任务',
+  '/': '首页',
+  '/upload': '上传计划',
+  '/tasks': '今日计划',
   '/timer': '计时',
-  '/materials': '资料库',
-  '/ai': 'AI 知识库',
-  '/stats': '数据分析',
+  '/stats': '学习记录',
   '/settings': '设置',
 }
 const pageTitle = computed(() => titleMap[route.path] ?? 'StudyMate')
@@ -219,7 +205,6 @@ onBeforeUnmount(() => {
 }
 .header-title h2 { margin: 0; font-size: 18px; color: var(--text-strong); font-weight: 700; }
 .header-date { margin: 0; font-size: 12px; color: var(--text-muted); }
-.header-search { flex: 1; max-width: 420px; }
 .header-actions { display: flex; align-items: center; gap: 14px; margin-left: auto; }
 .bell :deep(.el-button) { color: var(--text-secondary); }
 .user-avatar { background: linear-gradient(135deg, #14B8A6, #0F766E); color: #fff; font-weight: 700; }

@@ -1,157 +1,92 @@
 <template>
   <div class="timer-page">
-    <el-row :gutter="20">
-      <!-- 计时器 -->
-      <el-col :xs="24" :lg="14">
-        <el-card class="timer-card" shadow="never">
-          <div class="mode-switch">
-            <el-radio-group v-model="mode" :disabled="running" @change="resetTimer">
-              <el-radio-button label="pomodoro">🍅 番茄钟</el-radio-button>
-              <el-radio-button label="countup">⏱ 正计时</el-radio-button>
-              <el-radio-button label="countdown">⏳ 倒计时</el-radio-button>
-            </el-radio-group>
-          </div>
+    <!-- 进行中 -->
+    <el-card v-if="current" shadow="never" class="run-card">
+      <div class="run-label">
+        <el-tag v-if="mode === 'pomodoro' && pomodoroActive" :type="pomoPhase === 'work' ? 'danger' : 'success'" size="small">
+          {{ pomoPhase === 'work' ? '🍅 专注中' : '☕ 休息中' }}
+        </el-tag>
+        <el-tag v-else-if="current.task" type="primary" size="small">{{ current.task.subject }}</el-tag>
+        <el-tag v-else type="info" size="small">自由计时</el-tag>
+        <span v-if="current.note" class="run-note">· {{ current.note }}</span>
+      </div>
+      <div class="run-clock">{{ clockText }}</div>
+      <div class="run-sub">
+        <template v-if="mode === 'pomodoro' && pomodoroActive">
+          {{ pomoPhase === 'work' ? '专注剩余' : '休息剩余' }}
+        </template>
+        <template v-else-if="current.task">
+          {{ current.task.content }}
+        </template>
+        <template v-else>已计时</template>
+      </div>
+      <div class="run-actions">
+        <el-button type="warning" size="large" @click="stop">结束并保存</el-button>
+      </div>
+    </el-card>
 
-          <div class="clock" :class="{ rest: mode === 'pomodoro' && phase === 'break' }">
-            <div class="clock-time">{{ timeText }}</div>
-            <div v-if="mode === 'pomodoro'" class="clock-phase">
-              {{ phase === 'work' ? '专注中' : '休息中' }} · 已完成 {{ cycles }} 个番茄
-            </div>
-            <div v-else-if="mode === 'countdown'" class="clock-phase">目标 {{ targetMin }} 分钟</div>
-            <div v-else class="clock-phase">累计专注</div>
-          </div>
+    <!-- 未开始：选择模式 -->
+    <el-card v-else shadow="never" class="start-card">
+      <el-tabs v-model="mode" class="modes">
+        <!-- 计划计时 -->
+        <el-tab-pane label="计划计时" name="task">
+          <p class="mode-hint">选择今日一个计划，到点自动或手动开始计时。</p>
+          <div v-if="!planTasks.length" class="empty">今日暂无待开始计划，可切换「自由计时」。</div>
+          <ul v-else class="pick-list">
+            <li v-for="t in planTasks" :key="t.id" class="pick-item">
+              <span class="pk-time">{{ t.start_time || '—' }}</span>
+              <span class="pk-subj">{{ t.subject }}</span>
+              <span class="pk-content">{{ t.content }}</span>
+              <el-button size="small" type="primary" @click="startTask(t)">开始</el-button>
+            </li>
+          </ul>
+        </el-tab-pane>
 
-          <div class="config">
-            <template v-if="mode === 'pomodoro'">
-              <span>专注 <el-input-number v-model="workMin" :min="1" :max="90" :disabled="running" size="small" /> 分</span>
-              <span>休息 <el-input-number v-model="breakMin" :min="1" :max="30" :disabled="running" size="small" /> 分</span>
-            </template>
-            <template v-else-if="mode === 'countdown'">
-              <span>时长 <el-input-number v-model="targetMin" :min="1" :max="180" :disabled="running" size="small" /> 分</span>
-            </template>
-            <span>
-              关联
-              <el-select v-model="taskId" placeholder="可选任务" clearable size="small" style="width: 200px">
-                <el-option v-for="t in tasks" :key="t.id" :label="`${t.date} ${t.subject} · ${t.content}`" :value="t.id" />
-              </el-select>
-            </span>
-            <span v-if="taskId">
-              科目
-              <el-input v-model="subject" size="small" style="width: 120px" placeholder="自动带出" />
-            </span>
+        <!-- 番茄钟 -->
+        <el-tab-pane label="番茄钟" name="pomodoro">
+          <div class="pomo-config">
+            <span>专注 <el-input-number v-model="workMin" :min="1" :max="90" size="small" /> 分</span>
+            <span>休息 <el-input-number v-model="breakMin" :min="1" :max="30" size="small" /> 分</span>
           </div>
+          <p class="mode-hint">开始后生成为期一个番茄周期的自由计时，结束自动保存。</p>
+          <el-button type="primary" size="large" @click="startPomodoro">开始番茄钟</el-button>
+        </el-tab-pane>
 
-          <div class="controls">
-            <el-button v-if="!running" type="primary" size="large" @click="start">开始</el-button>
-            <el-button v-else type="warning" size="large" @click="pause">暂停</el-button>
-            <el-button size="large" :disabled="!running && elapsed === 0 && !currentRecordId" @click="stop">停止并保存</el-button>
-            <el-button size="large" text @click="resetTimer">重置</el-button>
-          </div>
-          <div v-if="saveTip" class="save-tip">{{ saveTip }}</div>
-        </el-card>
-      </el-col>
-
-      <!-- 统计 -->
-      <el-col :xs="24" :lg="10">
-        <el-card class="stats-card" shadow="never">
-          <div class="stats-head">
-            <span>计时统计</span>
-            <el-radio-group v-model="statsRange" size="small" @change="loadStats">
-              <el-radio-button label="day">今天</el-radio-button>
-              <el-radio-button label="week">本周</el-radio-button>
-              <el-radio-button label="month">本月</el-radio-button>
-              <el-radio-button label="all">全部</el-radio-button>
-            </el-radio-group>
-          </div>
-          <div class="stat-big">
-            <div class="stat-hours">{{ stats.total_hours }}<small>h</small></div>
-            <div class="stat-sub">共 {{ stats.session_count }} 次 · {{ formatDur(stats.total_seconds) }}</div>
-          </div>
-          <el-row :gutter="12">
-            <el-col :span="12"><div ref="pieRef" class="chart"></div></el-col>
-            <el-col :span="12"><div ref="barRef" class="chart"></div></el-col>
-          </el-row>
-          <div ref="lineRef" class="chart chart-line"></div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 历史 -->
-    <el-card class="history-card" shadow="never" style="margin-top: 20px">
-      <div class="stats-head"><span>计时记录</span><el-button text size="small" @click="loadHistory">刷新</el-button></div>
-      <el-table :data="history" stripe size="small">
-        <el-table-column prop="mode" label="模式" width="110">
-          <template #default="{ row }">
-            <el-tag :type="row.mode === 'pomodoro' ? 'danger' : row.mode === 'countdown' ? 'warning' : 'success'" size="small">
-              {{ modeLabel(row.mode) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="subject" label="科目" width="100" />
-        <el-table-column label="开始" width="170">
-          <template #default="{ row }">{{ row.start_time }}</template>
-        </el-table-column>
-        <el-table-column label="时长" width="100">
-          <template #default="{ row }">{{ formatDur(row.duration) }}</template>
-        </el-table-column>
-        <el-table-column prop="note" label="备注" />
-        <el-table-column label="操作" width="90">
-          <template #default="{ row }">
-            <el-button text type="danger" size="small" @click="removeRecord(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+        <!-- 自由计时 -->
+        <el-tab-pane label="自由计时" name="free">
+          <el-input v-model="freeNote" placeholder="可选备注，如「背单词 30 分钟」" class="free-note" />
+          <p class="mode-hint">不绑定计划，手动开始 / 结束。</p>
+          <el-button type="primary" size="large" @click="startFree">开始自由计时</el-button>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onBeforeUnmount, computed, nextTick, watch } from 'vue'
-import * as echarts from 'echarts'
-import {
-  startRecord, stopRecord, deleteRecord, getHistory, getStats,
-  type TimerMode, type RecordItem, type StatsData,
-} from '@/api/timer'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { startTimer, stopTimer, getTimerCurrent, reportPomodoroCycle, type TimerSessionItem } from '@/api/plan'
 import { listTasks, type TaskItem } from '@/api/task'
 
-const mode = ref<TimerMode>('pomodoro')
-const running = ref(false)
-const phase = ref<'work' | 'break'>('work')
-const cycles = ref(0)
+const route = useRoute()
+type Mode = 'task' | 'pomodoro' | 'free'
+const mode = ref<Mode>('task')
+const current = ref<TimerSessionItem | null>(null)
+const planTasks = ref<TaskItem[]>([])
+const freeNote = ref('')
+const now = ref(Date.now())
+
+// 番茄钟本地状态
 const workMin = ref(25)
 const breakMin = ref(5)
-const targetMin = ref(25)
-const taskId = ref<number | null>(null)
-const subject = ref<string | null>(null)
-const saveTip = ref('')
+const pomodoroActive = ref(false)
+const pomoPhase = ref<'work' | 'break'>('work')
+const pomoLeft = ref(0)
+const pomoCycle = ref(1)
 
-const elapsed = ref(0)        // 正计时累计秒
-const secondsLeft = ref(0)    // 倒计时剩余秒
-const workLeft = ref(0)
-const breakLeft = ref(0)
-const currentRecordId = ref<number | null>(null)
 let timer: number | undefined
-
-const timeText = computed(() => {
-  if (mode.value === 'countup') return fmt(elapsed.value)
-  if (mode.value === 'countdown') return fmt(secondsLeft.value)
-  return fmt(phase.value === 'work' ? workLeft.value : breakLeft.value)
-})
-
-const tasks = ref<TaskItem[]>([])
-const history = ref<RecordItem[]>([])
-const stats = reactive<StatsData>({
-  range: 'week', total_seconds: 0, total_hours: 0, session_count: 0,
-  by_mode: {}, by_subject: {}, daily: [],
-})
-const statsRange = ref<'day' | 'week' | 'month' | 'all'>('week')
-
-const pieRef = ref<HTMLElement>()
-const barRef = ref<HTMLElement>()
-const lineRef = ref<HTMLElement>()
-let pieChart: echarts.ECharts | null = null
-let barChart: echarts.ECharts | null = null
-let lineChart: echarts.ECharts | null = null
 
 function fmt(s: number): string {
   s = Math.max(0, Math.floor(s))
@@ -162,210 +97,162 @@ function fmt(s: number): string {
   const ss = String(sec).padStart(2, '0')
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }
-function formatDur(sec: number): string {
-  sec = sec || 0
-  if (sec < 60) return `${sec}秒`
-  const m = Math.floor(sec / 60)
-  if (m < 60) return `${m}分${sec % 60}秒`
-  return `${Math.floor(m / 60)}时${m % 60}分`
-}
-function modeLabel(m: string): string {
-  return ({ pomodoro: '番茄钟', countup: '正计时', countdown: '倒计时', focus: '专注' } as Record<string, string>)[m] || m
+
+const elapsedSec = computed(() => {
+  if (!current.value || !current.value.started_at) return 0
+  // 后端返回 UTC ISO-8601（如 2026-08-02T12:40:01Z），直接交给 Date 解析；
+  // 若解析失败（NaN）则兜底为 0，避免界面出现 NaN:NaN。
+  const startedAt = new Date(current.value.started_at).getTime()
+  if (Number.isNaN(startedAt)) return 0
+  return Math.floor((now.value - startedAt) / 1000)
+})
+
+const clockText = computed(() => {
+  if (mode.value === 'pomodoro' && pomodoroActive.value) return fmt(pomoLeft.value)
+  if (current.value) return fmt(elapsedSec.value)
+  return '00:00'
+})
+
+const todayStr = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function resetTimer() {
-  stopInterval()
-  running.value = false
-  elapsed.value = 0
-  secondsLeft.value = targetMin.value * 60
-  workLeft.value = workMin.value * 60
-  breakLeft.value = breakMin.value * 60
-  phase.value = 'work'
-  cycles.value = 0
-  currentRecordId.value = null
-  saveTip.value = ''
-}
-
-async function start() {
-  if (running.value) return
-  running.value = true
-  saveTip.value = ''
-  if (mode.value === 'countup') {
-    const rec = await startRecord({ mode: 'countup', subject: subject.value, task_id: taskId.value })
-    currentRecordId.value = rec.id
-    timer = window.setInterval(tick, 1000)
-  } else if (mode.value === 'countdown') {
-    const sec = targetMin.value * 60
-    secondsLeft.value = sec
-    const rec = await startRecord({ mode: 'countdown', planned_duration: sec, subject: subject.value, task_id: taskId.value })
-    currentRecordId.value = rec.id
-    timer = window.setInterval(tick, 1000)
-  } else {
-    // pomodoro
-    workLeft.value = workMin.value * 60
-    phase.value = 'work'
-    await beginWork()
-    timer = window.setInterval(tick, 1000)
+async function loadTasks() {
+  try {
+    const res = await listTasks({ date: todayStr(), status: 'pending' })
+    planTasks.value = res.data || []
+  } catch {
+    planTasks.value = []
   }
 }
 
-async function beginWork() {
-  const rec = await startRecord({ mode: 'pomodoro', subject: subject.value, task_id: taskId.value, note: '专注段' })
-  currentRecordId.value = rec.id
+async function refresh() {
+  try {
+    const c = await getTimerCurrent()
+    current.value = c.data || null
+  } catch {
+    current.value = null
+  }
+  await loadTasks()
 }
 
-function pause() {
-  running.value = false
-  stopInterval()
-  // 暂停：正计时/倒计时保留记录但先停表，恢复时续接（简化：暂停即结束当前段）
-  if (currentRecordId.value && mode.value !== 'pomodoro') {
-    stopRecord(currentRecordId.value).then(refreshAfterSave)
+async function startTask(t: TaskItem) {
+  try {
+    const res = await startTimer({ mode: 'task', task_id: t.id })
+    current.value = res.data
+    mode.value = 'task'
+    pomodoroActive.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.message || '开始计时失败')
   }
 }
 
-async function stop() {
-  running.value = false
-  stopInterval()
-  if (currentRecordId.value) {
-    await stopRecord(currentRecordId.value)
-    saveTip.value = '已保存本次计时'
-    currentRecordId.value = null
+async function startPomodoro() {
+  try {
+    const res = await startTimer({ mode: 'pomodoro', duration: workMin.value * 60 })
+    current.value = res.data
+    mode.value = 'pomodoro'
+    pomodoroActive.value = true
+    pomoPhase.value = 'work'
+    pomoLeft.value = workMin.value * 60
+    pomoCycle.value = 1
+  } catch (e: any) {
+    ElMessage.error(e?.message || '开始失败')
   }
-  await refreshAfterSave()
-  resetTimer()
 }
 
-async function tick() {
-  if (!running.value) return
-  if (mode.value === 'countup') {
-    elapsed.value++
-  } else if (mode.value === 'countdown') {
-    secondsLeft.value--
-    if (secondsLeft.value <= 0) {
-      secondsLeft.value = 0
-      running.value = false
-      stopInterval()
-      if (currentRecordId.value) {
-        await stopRecord(currentRecordId.value)
-        saveTip.value = '倒计时结束，已保存'
-        currentRecordId.value = null
+async function startFree() {
+  try {
+    const res = await startTimer({ mode: 'countup', note: freeNote.value.trim() || undefined })
+    current.value = res.data
+    mode.value = 'free'
+    pomodoroActive.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.message || '开始失败')
+  }
+}
+
+/** 专注段结束上报一轮（番茄钟：只统计专注时长，休息不计入学习时长）。 */
+async function reportCycle() {
+  if (!current.value) return
+  try {
+    await reportPomodoroCycle({
+      session_id: current.value.id,
+      cycle_number: pomoCycle.value,
+      focus_duration: workMin.value * 60,
+      break_duration: breakMin.value * 60,
+    })
+    pomoCycle.value += 1
+  } catch {
+    // 上报失败不阻断番茄钟流程；最终统计会回退到整段时长
+  }
+}
+
+async function stop(silent = false) {
+  try {
+    await stopTimer({})
+  } catch (e: any) {
+    if (!silent) ElMessage.error(e?.message || '结束失败')
+  }
+  current.value = null
+  pomodoroActive.value = false
+  mode.value = 'task'
+  await loadTasks()
+}
+
+function tick() {
+  now.value = Date.now()
+  if (pomodoroActive.value && current.value) {
+    pomoLeft.value--
+    if (pomoLeft.value <= 0) {
+      if (pomoPhase.value === 'work') {
+        // 专注结束：先上报本轮（聚焦时长），再进入休息
+        reportCycle().finally(() => {
+          pomoPhase.value = 'break'
+          pomoLeft.value = breakMin.value * 60
+        })
+      } else {
+        // 休息结束：完成一个番茄周期，自动保存
+        stop(true)
       }
-      await refreshAfterSave()
     }
-  } else {
-    // pomodoro
-    if (phase.value === 'work') {
-      workLeft.value--
-      if (workLeft.value <= 0) {
-        workLeft.value = 0
-        // 结束一个专注段
-        if (currentRecordId.value) await stopRecord(currentRecordId.value)
-        currentRecordId.value = null
-        cycles.value++
-        phase.value = 'break'
-        breakLeft.value = breakMin.value * 60
-        saveTip.value = `完成第 ${cycles.value} 个番茄 🍅`
-      }
-    } else {
-      breakLeft.value--
-      if (breakLeft.value <= 0) {
-        breakLeft.value = 0
-        phase.value = 'work'
-        await beginWork()
-      }
-    }
   }
 }
-
-function stopInterval() {
-  if (timer) { clearInterval(timer); timer = undefined }
-}
-
-async function refreshAfterSave() {
-  await Promise.all([loadHistory(), loadStats()])
-}
-
-async function loadHistory() {
-  const res = await getHistory({ page: 1, page_size: 30 })
-  history.value = res.data
-}
-async function loadStats() {
-  const data = await getStats(statsRange.value)
-  Object.assign(stats, data)
-  await nextTick()
-  renderCharts()
-}
-
-function renderCharts() {
-  if (pieRef.value && !pieChart) pieChart = echarts.init(pieRef.value)
-  if (barRef.value && !barChart) barChart = echarts.init(barRef.value)
-  if (lineRef.value && !lineChart) lineChart = echarts.init(lineRef.value)
-
-  const modeNames: Record<string, string> = { pomodoro: '番茄钟', countup: '正计时', countdown: '倒计时', focus: '专注' }
-  const modeData = Object.entries(stats.by_mode).map(([k, v]) => ({ name: modeNames[k] || k, value: Math.round((v || 0) / 60) }))
-  pieChart?.setOption({
-    title: { text: '按模式(分钟)', left: 'center', textStyle: { fontSize: 12 } },
-    tooltip: { trigger: 'item' },
-    series: [{ type: 'pie', radius: '62%', data: modeData, label: { fontSize: 10 } }],
-  })
-  const subj = Object.entries(stats.by_subject).map(([k, v]) => ({ name: k, value: Math.round((v || 0) / 60) }))
-  barChart?.setOption({
-    title: { text: '按科目(分钟)', left: 'center', textStyle: { fontSize: 12 } },
-    tooltip: { trigger: 'axis' },
-    grid: { left: 40, right: 10, top: 28, bottom: 20 },
-    xAxis: { type: 'category', data: subj.map((s) => s.name), axisLabel: { fontSize: 10 } },
-    yAxis: { type: 'value' },
-    series: [{ type: 'bar', data: subj.map((s) => s.value), itemStyle: { color: '#0F766E' } }],
-  })
-  lineChart?.setOption({
-    title: { text: '每日时长(分钟)', left: 'center', textStyle: { fontSize: 12 } },
-    tooltip: { trigger: 'axis' },
-    grid: { left: 40, right: 10, top: 28, bottom: 20 },
-    xAxis: { type: 'category', data: stats.daily.map((d) => d.date.slice(5)), axisLabel: { fontSize: 10 } },
-    yAxis: { type: 'value' },
-    series: [{ type: 'line', smooth: true, data: stats.daily.map((d) => Math.round(d.seconds / 60)), itemStyle: { color: '#14B8A6' }, areaStyle: { opacity: 0.15 } }],
-  })
-}
-
-async function removeRecord(row: RecordItem) {
-  await deleteRecord(row.id)
-  await refreshAfterSave()
-}
-
-// 选任务时自动带出科目
-function onTaskChange() {
-  const t = tasks.value.find((x) => x.id === taskId.value)
-  subject.value = t ? t.subject : null
-}
-watch(taskId, onTaskChange)
 
 onMounted(async () => {
-  resetTimer()
-  const res = await listTasks({ page: 1, page_size: 100 })
-  tasks.value = res.data
-  await loadHistory()
-  await loadStats()
+  await refresh()
+  // 从「今日计划」带 taskId 进入且当前无计时：直接开始
+  const qTask = route.query.taskId
+  if (qTask && !current.value) {
+    const id = Number(qTask)
+    const t = planTasks.value.find((x) => x.id === id)
+    if (t) await startTask(t)
+  }
+  timer = window.setInterval(tick, 1000)
 })
-onBeforeUnmount(() => { stopInterval() })
+onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>
-.timer-page { }
-.timer-card { border-radius: 16px; }
-.mode-switch { display: flex; justify-content: center; margin-bottom: 18px; }
-.clock { text-align: center; padding: 24px 0; }
-.clock.rest { background: rgba(20,184,166,.08); border-radius: 14px; }
-.clock-time { font-size: 64px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--brand-700, #0F766E); letter-spacing: 2px; }
-.clock-phase { margin-top: 8px; color: var(--text-muted); font-size: 14px; }
-.config { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; align-items: center; margin: 12px 0 20px; font-size: 14px; color: var(--text-secondary); }
-.controls { display: flex; gap: 12px; justify-content: center; }
-.save-tip { text-align: center; margin-top: 14px; color: var(--brand-700, #0F766E); font-size: 13px; }
-.stats-card { border-radius: 16px; }
-.stats-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 12px; }
-.stat-big { text-align: center; margin-bottom: 14px; }
-.stat-hours { font-size: 48px; font-weight: 800; color: var(--brand-700, #0F766E); }
-.stat-hours small { font-size: 18px; margin-left: 4px; }
-.stat-sub { color: var(--text-muted); font-size: 13px; }
-.chart { height: 170px; }
-.chart-line { height: 180px; margin-top: 8px; }
+.timer-page { max-width: 720px; margin: 0 auto; }
+.run-card, .start-card { border-radius: 16px; text-align: center; padding: 28px 20px; }
+.run-label { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.run-note { font-size: 13px; color: var(--text-muted); }
+.run-clock { font-size: 68px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--brand-700, #0F766E); letter-spacing: 2px; margin: 14px 0 6px; }
+.run-sub { color: var(--text-muted); font-size: 14px; margin-bottom: 20px; }
+.run-actions { display: flex; justify-content: center; }
+
+.modes { text-align: left; }
+.mode-hint { font-size: 13px; color: var(--text-muted); margin: 8px 0 16px; }
+.empty { color: var(--text-muted); font-size: 13px; padding: 16px 0; }
+.pomo-config { display: flex; gap: 20px; justify-content: center; margin: 12px 0; font-size: 14px; }
+.free-note { max-width: 360px; margin: 12px auto; }
+
+.pick-list { list-style: none; margin: 0; padding: 0; }
+.pick-item { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--border); }
+.pick-item:last-child { border-bottom: none; }
+.pk-time { width: 60px; font-weight: 600; color: var(--text-secondary); }
+.pk-subj { width: 90px; font-weight: 600; color: var(--text-strong); }
+.pk-content { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

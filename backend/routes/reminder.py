@@ -1,7 +1,7 @@
 """提醒相关路由：待送达列表、回执、用户偏好设置、手动触发扫描。"""
 from flask import request, jsonify
 
-from utils.jwt_utils import login_required
+from utils.local_auth import login_required
 from app.extensions import db
 from models.reminder import Reminder, ReminderSetting
 from services.reminder_service import get_setting, sweep_due_reminders

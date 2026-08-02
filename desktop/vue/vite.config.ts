@@ -2,8 +2,10 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
-// 移除 Vite 注入的 crossorigin 属性：Electron file:// 协议下 crossorigin 会触发
-// CORS 策略导致 ESM 模块加载失败、界面白屏。本地应用无需 CORS 隔离。
+// 兼容桌面与 Web 双构建目标：
+// - 桌面（Electron file://）：保留 removeCrossorigin，base 用相对路径。
+// - Web（http/https）：removeCrossorigin 去除的 crossorigin 属性在同源下无害；
+//   base 相对路径在站点根域名下同样可加载。
 function removeCrossorigin() {
   return {
     name: 'remove-crossorigin',
@@ -14,11 +16,13 @@ function removeCrossorigin() {
   }
 }
 
-// https://vite.dev/config/
 export default defineConfig({
-  // 生产打包进 Electron 时用相对路径，确保 file:///asar 下资源可加载
   base: './',
   plugins: [vue(), removeCrossorigin()],
+  build: {
+    // 沙箱会拦截 Vite 默认的 rmSync 清目录，关闭自动清空
+    emptyOutDir: false,
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -26,11 +30,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: true, // 与 desktop/electron/main.js 中的 5173 保持一致
+    strictPort: true,
     proxy: {
-      // 开发态：将 /api 转发到 Flask 后端（run.py 默认 127.0.0.1:5000）
       '/api': {
-        target: 'http://127.0.0.1:5000',
+        target: 'http://127.0.0.1:5088',
         changeOrigin: true,
       },
     },

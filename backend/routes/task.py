@@ -1,7 +1,11 @@
-from flask import Blueprint, request, jsonify
-import os
+"""学习任务 CRUD 与统计路由。
 
-from utils.jwt_utils import login_required
+计划文件的导入统一走 `/api/plans/parse` + `/api/plans/confirm`（AI 解析，
+使用用户在「设置」页配置的 Key）。这里不再提供任何绕过 AI 的本地导入入口。
+"""
+from flask import Blueprint, request, jsonify
+
+from utils.local_auth import login_required
 from services.plan_service import (
     create_task,
     bulk_create,
@@ -9,11 +13,8 @@ from services.plan_service import (
     list_tasks,
     update_task,
     delete_task,
-    import_from_excel,
-    import_from_json,
-    import_from_pdf,
-    preview_pdf_ai,
-    confirm_pdf_ai,
+    count_by_criteria,
+    delete_by_criteria,
 )
 
 task_bp = Blueprint('task', __name__)
@@ -113,111 +114,51 @@ def delete(current_user, task_id):
     return jsonify({'code': 200, 'message': '删除成功'})
 
 
-@task_bp.route('/import/excel', methods=['POST'])
+@task_bp.route('/batch', methods=['DELETE'])
 @login_required
-def import_excel(current_user):
-    """从 Excel 导入复习计划（支持 .xlsx / .xlsm / .xls）。"""
-    if 'file' not in request.files:
-        return jsonify({'code': 400, 'message': '请上传文件'}), 400
-    file_storage = request.files['file']
-    filename = getattr(file_storage, 'filename', '') or ''
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in ('.xlsx', '.xlsm', '.xls'):
-        return jsonify({'code': 400, 'message': '仅支持 .xlsx / .xlsm / .xls 文件'}), 400
-    try:
-        tasks = import_from_excel(current_user.id, file_storage)
-    except Exception as e:
-        return jsonify({'code': 500, 'message': f'导入失败: {e}'}), 500
+def batch_delete(current_user):
+    """批量删除任务。body: {ids:[...]}；仅删除属于当前用户的任务。"""
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids')
+    if not isinstance(ids, list) or not ids:
+        return jsonify({'code': 400, 'message': '请提供要删除的任务 id 数组'}), 400
+    ids = [int(i) for i in ids if str(i).isdigit()]
+    if not ids:
+        return jsonify({'code': 400, 'message': 'ids 格式错误'}), 400
+    from services.plan_service import bulk_delete
+    deleted = bulk_delete(current_user.id, ids)
     return jsonify({
         'code': 200,
-        'message': f'成功导入 {len(tasks)} 条',
-        'data': {'count': len(tasks), 'tasks': [t.to_dict() for t in tasks]},
+        'message': f'已删除 {deleted} 条计划',
+        'data': {'deleted': deleted},
     })
 
 
-@task_bp.route('/import/json', methods=['POST'])
+@task_bp.route('/delete-by-criteria/preview', methods=['POST'])
 @login_required
-def import_json(current_user):
-    """从 JSON 导入复习计划（支持数组或 { "tasks": [...] }）。"""
-    if 'file' not in request.files:
-        return jsonify({'code': 400, 'message': '请上传文件'}), 400
-    file_storage = request.files['file']
-    filename = getattr(file_storage, 'filename', '') or ''
-    ext = os.path.splitext(filename)[1].lower()
-    if ext and ext != '.json':
-        return jsonify({'code': 400, 'message': '仅支持 .json 文件'}), 400
+def preview_delete_by_criteria(current_user):
+    """预览按条件删除将影响的任务数量。body: {subject?, start_date?, end_date?, start_time?, end_time?, status?, plan_source?}"""
+    criteria = request.get_json(silent=True) or {}
     try:
-        tasks = import_from_json(current_user.id, file_storage)
-    except Exception as e:
-        return jsonify({'code': 500, 'message': f'导入失败: {e}'}), 500
-    return jsonify({
-        'code': 200,
-        'message': f'成功导入 {len(tasks)} 条',
-        'data': {'count': len(tasks), 'tasks': [t.to_dict() for t in tasks]},
-    })
-
-
-@task_bp.route('/import/pdf', methods=['POST'])
-@login_required
-def import_pdf(current_user):
-    """从 PDF 导入复习计划（需安装 pdfminer.six）。"""
-    if 'file' not in request.files:
-        return jsonify({'code': 400, 'message': '请上传文件'}), 400
-    try:
-        tasks = import_from_pdf(current_user.id, request.files['file'])
-    except Exception as e:
-        return jsonify({'code': 500, 'message': f'导入失败: {e}'}), 500
-    return jsonify({
-        'code': 200,
-        'message': f'成功导入 {len(tasks)} 条',
-        'data': {'count': len(tasks), 'tasks': [t.to_dict() for t in tasks]},
-    })
-
-
-@task_bp.route('/import/pdf/ai', methods=['POST'])
-@login_required
-def import_pdf_ai_preview(current_user):
-    """PDF 智能解析【预览】（U2 人工复核）：识别任务但不落库，返回带置信度与待确认项的列表。"""
-    if 'file' not in request.files:
-        return jsonify({'code': 400, 'message': '请上传文件'}), 400
-    file_storage = request.files['file']
-    filename = getattr(file_storage, 'filename', '') or ''
-    ext = os.path.splitext(filename)[1].lower()
-    if ext and ext != '.pdf':
-        return jsonify({'code': 400, 'message': '仅支持 .pdf 文件'}), 400
-    try:
-        tasks = preview_pdf_ai(current_user.id, file_storage)
+        count = count_by_criteria(current_user.id, criteria)
     except ValueError as e:
         return jsonify({'code': 400, 'message': str(e)}), 400
-    except Exception as e:
-        return jsonify({'code': 500, 'message': f'AI 解析失败: {e}'}), 500
-    # 标记待用户确认（日期缺失/低置信度）
-    for t in tasks:
-        t['needs_review'] = (t.get('date') is None) or (t.get('confidence') is not None and float(t['confidence']) < 0.6)
-    return jsonify({
-        'code': 200,
-        'message': f'识别到 {len(tasks)} 条任务，请在确认页复核后保存',
-        'data': {'count': len(tasks), 'tasks': tasks},
-    })
+    return jsonify({'code': 200, 'data': {'count': count}})
 
 
-@task_bp.route('/import/pdf/ai/confirm', methods=['POST'])
+@task_bp.route('/delete-by-criteria', methods=['POST'])
 @login_required
-def import_pdf_ai_confirm(current_user):
-    """PDF 智能解析【确认落库】：接收经前端复核（可修正 date/subject 等）后的任务列表。"""
-    items = request.get_json(silent=True)
-    if not isinstance(items, list):
-        return jsonify({'code': 400, 'message': 'body 应为任务数组'}), 400
+def delete_by_criteria_route(current_user):
+    """按条件批量删除任务。body 同 preview。至少需要一个条件，防止误删全部。"""
+    criteria = request.get_json(silent=True) or {}
     try:
-        tasks, skipped = confirm_pdf_ai(current_user.id, items)
+        deleted = delete_by_criteria(current_user.id, criteria)
     except ValueError as e:
         return jsonify({'code': 400, 'message': str(e)}), 400
-    except Exception as e:
-        return jsonify({'code': 500, 'message': f'保存失败: {e}'}), 500
     return jsonify({
         'code': 200,
-        'message': f'已保存 {len(tasks)} 条（跳过 {skipped} 条无效）',
-        'data': {'count': len(tasks), 'skipped': skipped, 'tasks': [t.to_dict() for t in tasks]},
+        'message': f'已删除 {deleted} 条计划',
+        'data': {'deleted': deleted},
     })
 
 
@@ -226,11 +167,10 @@ def import_pdf_ai_confirm(current_user):
 def daily_stats(current_user):
     """某日学习统计（总数/完成数/完成率/涉及科目）。"""
     from datetime import datetime as _dt
-    from sqlalchemy import func
 
     date_str = request.args.get('date', _dt.now().strftime('%Y-%m-%d'))
     try:
-        query_date = _dt.strptime(date_str, '%Y-%m-%d').date()
+        _dt.strptime(date_str, '%Y-%m-%d')
     except ValueError:
         return jsonify({'code': 400, 'message': '日期格式错误'}), 400
 

@@ -7,10 +7,11 @@ class StudyRecord(db.Model):
 
     # 计时模式（record_type 同时作为模式字段）
     MODE_POMODORO = 'pomodoro'      # 番茄钟（专注段）
-    MODE_COUNTUP = 'countup'        # 正计时
+    MODE_TASK = 'task'              # 任务计时（绑定 study_tasks）
+    MODE_COUNTUP = 'countup'        # 正计时 / 自由计时
     MODE_COUNTDOWN = 'countdown'    # 倒计时
     MODE_FOCUS = 'focus'            # 历史兼容别名（同正计时）
-    VALID_MODES = (MODE_POMODORO, MODE_COUNTUP, MODE_COUNTDOWN, MODE_FOCUS)
+    VALID_MODES = (MODE_POMODORO, MODE_TASK, MODE_COUNTUP, MODE_COUNTDOWN, MODE_FOCUS)
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)

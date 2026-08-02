@@ -1,25 +1,36 @@
-Flask==3.0.3
-Flask-CORS==4.0.1
-openai==2.48.0
+# StudyMate 后端生产依赖（Web 化部署）
+# 安装：pip install -r requirements.txt
+
+# Web 框架
+Flask==3.1.1
 Flask-SQLAlchemy==3.1.1
-Flask-Migrate==4.0.7
-PyMySQL==1.1.1
-cryptography==42.0.8
-PyJWT==2.8.0
-Werkzeug==3.0.3
+Flask-Migrate==4.1.0
+Flask-CORS==5.0.0
+Flask-Limiter==4.1.1
 python-dotenv==1.0.1
-requests==2.32.3
+
+# 数据库（MySQL）
+PyMySQL==1.1.1
+# 若用 PostgreSQL 则改为：psycopg2-binary
+
+# 密码/会话
+cryptography==49.0.0
+
+# 调度（提醒扫掠）
 APScheduler==3.10.4
-openpyxl==3.1.5
-pypdf>=3.0.0
+
+# AI / RAG
+openai==2.48.0
+sentence-transformers==5.6.1
+faiss-cpu==1.14.3
+numpy==1.26.4
+# RAG 首次运行会自动下载向量模型权重（shibing624/text2vec-base-chinese），
+# 服务器需能访问 HuggingFace，或提前缓存到本地。
+
+# 文档解析
+python-docx==1.2.0
 pdfminer.six==20231228
-# langchain 系列已移除：当前代码未 import，且其 0.2.x 硬锁 numpy<2.0，
-# 与 Python 3.13 + 现代科学栈（numpy>=2）冲突，会装回崩溃的 MINGW 实验构建。
-# 若未来实现 RAG，再按需加回新版（>=0.3，支持 numpy2）。
-sentence-transformers==2.7.0
-faiss-cpu>=1.9.0
-numpy>=2.0  # Python 3.13 需 numpy>=2（官方 cp313 轮子；<2 会装回崩溃的 MINGW 实验构建）
-gunicorn==22.0.0
-# ---- 桌面端打包（Phase 9.5：后端随 exe 一键启动）----
-waitress==3.0.2      # desktop_run.py 生产 WSGI 服务器
-pyinstaller==6.21.0  # 冻结后端为 studymate-backend.exe（仅构建机需要）
+
+# WSGI 服务器（Docker 内用 gunicorn 启动）
+gunicorn==23.0.0
+# 备选：waitress==3.0.2

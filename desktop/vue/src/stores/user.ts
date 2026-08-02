@@ -1,49 +1,61 @@
 import { defineStore } from 'pinia'
 import request from '@/api/request'
 
-interface Tokens {
-  access_token: string
-  refresh_token: string
-  expires_in?: number
-  token_type?: string
-}
-interface UserProfile {
-  id: number
-  nickname?: string
-  avatar?: string
-  [key: string]: unknown
-}
-
-// 用户与鉴权状态。
-// 说明：本阶段尚未实现微信扫码登录 UI，桌面端采用「开发态静默登录」——
-// 通过 WECHAT_MOCK 模式用 code 换取令牌，保证学习计划接口可端到端联通。
-// 正式扫码登录 UI 留待用户系统前端阶段（Phase 2 前端）替换 ensureToken 逻辑。
+// 本地账号状态：首次需初始化（setup），之后用用户名+密码登录（login）。
+// 登录成功后端返回会话令牌，存 localStorage，由 request.ts 注入 Authorization 头。
 export const useUserStore = defineStore('user', {
   state: () => ({
     token: localStorage.getItem('sm_access_token') || '',
-    user: JSON.parse(localStorage.getItem('sm_user') || 'null') as UserProfile | null,
+    username: localStorage.getItem('sm_username') || '',
+    setupDone: false,
+    ready: false, // 是否已向后端确认过初始化状态
   }),
+  getters: {
+    isLoggedIn: (s) => !!s.token,
+    needsSetup: (s) => s.ready && !s.setupDone && !s.token,
+  },
   actions: {
-    /** 确保存在有效令牌；无则静默登录一次。幂等。 */
-    async ensureToken() {
-      if (this.token) return
-      await this.login('desktop_dev')
+    /** 启动检查：询问后端是否已初始化账号、本地是否有有效令牌。 */
+    async bootstrap() {
+      try {
+        const res = await request.get('/auth/status')
+        this.setupDone = !!(res?.data?.data?.setup_done)
+      } catch {
+        this.setupDone = false
+      }
+      this.ready = true
     },
-    async login(code: string) {
-      const { data } = await request.post('/auth/wechat/login', { code })
-      const token: Tokens = data.data.token
-      this.token = token.access_token
-      localStorage.setItem('sm_access_token', token.access_token)
-      localStorage.setItem('sm_refresh_token', token.refresh_token)
-      this.user = data.data.user as UserProfile
-      localStorage.setItem('sm_user', JSON.stringify(this.user))
+    async setup(username: string, password: string) {
+      await request.post('/auth/setup', { username, password })
+      this.setupDone = true
+      await this.login(username, password)
+    },
+    async register(username: string, password: string) {
+      const res = await request.post('/auth/register', { username, password })
+      const token: string = res.data.data.token
+      this.token = token
+      this.username = username
+      localStorage.setItem('sm_access_token', token)
+      localStorage.setItem('sm_username', username)
+    },
+    async login(username: string, password: string) {
+      const res = await request.post('/auth/login', { username, password })
+      const token: string = res.data.data.token
+      this.token = token
+      this.username = username
+      localStorage.setItem('sm_access_token', token)
+      localStorage.setItem('sm_username', username)
     },
     logout() {
+      try {
+        request.post('/auth/logout')
+      } catch {
+        /* ignore */
+      }
       this.token = ''
-      this.user = null
+      this.username = ''
       localStorage.removeItem('sm_access_token')
-      localStorage.removeItem('sm_refresh_token')
-      localStorage.removeItem('sm_user')
+      localStorage.removeItem('sm_username')
     },
   },
 })

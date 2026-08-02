@@ -36,14 +36,8 @@ def main() -> None:
     # ---- 必须先设环境变量，后 import app（config.py 在 import 时求值）----
     db_path = (data_dir / 'studymate.db').as_posix()
     os.environ.setdefault('DATABASE_URL', f'sqlite:///{db_path}')
-    os.environ.setdefault('RAG_INDEX_DIR', str(data_dir / 'rag'))
     os.environ.setdefault('FLASK_ENV', 'production')
-    # 桌面单机模式：无 DeepSeek 密钥时 PDF 解析走正则降级，功能可用
-    if not os.environ.get('DEEPSEEK_API_KEY'):
-        os.environ.setdefault('PDF_AI_MOCK', 'true')
-    # 无真实微信 AppID 时启用 mock 登录（本机确定性 openid），保证单机可登录
-    if not os.environ.get('WECHAT_APP_ID'):
-        os.environ.setdefault('WECHAT_MOCK', 'true')
+    # AI Key 只来自用户在「设置」页的个人配置，此处不注入任何全局密钥。
 
     from app import create_app
     from app.extensions import db
@@ -54,6 +48,10 @@ def main() -> None:
     with app.app_context():
         import models  # noqa: F401  确保所有模型已注册到 metadata
         db.create_all()
+
+    # 对已有的 SQLite 库补新增列（幂等，MySQL 走 Alembic 不在此处理）
+    from app.schema_migrate import ensure_schema
+    ensure_schema(app)
 
     # 提醒调度器（与 run.py 行为一致）
     if app.config.get('REMINDER_ENABLED', True):

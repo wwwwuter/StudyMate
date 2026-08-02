@@ -1,9 +1,9 @@
+"""AI 能力包。
+
+Key 来源唯一：学生在「设置」页保存的个人配置。此处不创建任何持有全局 Key
+的共享实例，调用方按需 `AIService()` 并传入 user_id。
+"""
 from ai.deepseek_client import DeepSeekClient
 from ai.service import AIService
-from ai.rag import RAGService
 
-# 全局共享实例：保证各路由（material / rag）使用同一 RAGService 缓存
-rag_service = RAGService()
-ai_service = AIService(rag=rag_service)
-
-__all__ = ['DeepSeekClient', 'AIService', 'RAGService', 'rag_service', 'ai_service']
+__all__ = ['DeepSeekClient', 'AIService']

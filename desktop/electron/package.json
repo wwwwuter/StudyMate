@@ -1,6 +1,6 @@
 {
   "name": "studymate-electron",
-  "version": "1.1.2",
+  "version": "1.2.2",
   "description": "StudyMate 桌面端（Electron 外壳，打包 Vue 前端 SPA + 内置 Python 后端，一键启动）",
   "main": "main.js",
   "author": "",
@@ -30,11 +30,12 @@
     "appId": "com.studymate.desktop",
     "productName": "StudyMate",
     "copyright": "Copyright © 2026 StudyMate",
+    "icon": "build/icon.ico",
     "directories": {
       "output": "release",
       "buildResources": "build"
     },
-    "asar": true,
+    "asar": false,
     "files": [
       "main.js",
       "preload.js",
@@ -53,6 +54,7 @@
     "win": {
       "target": "nsis",
       "signAndEditExecutable": false,
+      "icon": "build/icon.ico",
       "artifactName": "StudyMate-Setup-${version}.${ext}"
     },
     "nsis": {

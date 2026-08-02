@@ -16,6 +16,8 @@ class StudyTask(db.Model):
     SOURCE_EXCEL = 'excel'
     SOURCE_JSON = 'json'
     SOURCE_PDF = 'pdf'
+    SOURCE_DOCX = 'docx'
+    SOURCE_PARSED = 'parsed'
     SOURCE_AUTO = 'auto'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -26,11 +28,18 @@ class StudyTask(db.Model):
     start_time = db.Column(db.Time, nullable=True, comment='开始时间')
     end_time = db.Column(db.Time, nullable=True, comment='结束时间')
     status = db.Column(db.String(16), default=STATUS_PENDING, comment='pending/done/cancelled')
-    plan_source = db.Column(db.String(16), default=SOURCE_MANUAL, comment='manual/excel/json/pdf/auto')
+    plan_source = db.Column(db.String(16), default=SOURCE_MANUAL, comment='manual/excel/json/pdf/docx/parsed/auto')
     # 字段扩展（Phase 5 升级方向 U5）
     priority = db.Column(db.Integer, default=0, comment='优先级：0 普通 / 1 高 / 2 紧急')
     estimated_minutes = db.Column(db.Integer, nullable=True, comment='预估时长（分钟）')
     tags = db.Column(db.String(128), nullable=True, comment='标签，逗号分隔')
+    # 艾宾浩斯智能排程（M2）
+    # review_round: 0=首次学习, 1..N=第 N 次复习（按间隔自动生成）
+    review_round = db.Column(db.Integer, default=0, nullable=False, index=True,
+                             comment='0=首次学习；1..N=第 N 次复习')
+    # root_task_id: 指向同一内容的首次学习任务（round 0），用于串联复习链
+    root_task_id = db.Column(db.Integer, db.ForeignKey('study_tasks.id'),
+                             nullable=True, index=True, comment='复习链的首次任务 id')
     create_time = db.Column(db.DateTime, default=utcnow)
     update_time = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
@@ -48,6 +57,8 @@ class StudyTask(db.Model):
             'priority': self.priority,
             'estimated_minutes': self.estimated_minutes,
             'tags': self.tags,
+            'review_round': self.review_round,
+            'root_task_id': self.root_task_id,
             'create_time': self.create_time.strftime('%Y-%m-%d %H:%M:%S') if self.create_time else None,
             'update_time': self.update_time.strftime('%Y-%m-%d %H:%M:%S') if self.update_time else None,
         }

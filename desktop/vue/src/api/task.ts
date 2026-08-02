@@ -9,10 +9,12 @@ export interface TaskItem {
   start_time: string | null
   end_time: string | null
   status: 'pending' | 'done' | 'cancelled'
-  plan_source: 'manual' | 'excel' | 'json' | 'pdf' | 'auto'
+  plan_source: 'manual' | 'excel' | 'json' | 'pdf' | 'auto' | 'parsed'
   priority?: number
   estimated_minutes?: number | null
   tags?: string | null
+  review_round?: number
+  root_task_id?: number | null
   create_time: string
   update_time: string
 }
@@ -53,56 +55,59 @@ export const updateTask = (id: number, payload: Partial<TaskItem>) =>
 export const deleteTask = (id: number) =>
   request.delete(`/tasks/${id}`).then((r) => r.data)
 
+export const batchDeleteTasks = (ids: number[]) =>
+  request.delete('/tasks/batch', { data: { ids } }).then((r) => r.data)
+
+export interface DeleteCriteria {
+  subject?: string
+  start_date?: string
+  end_date?: string
+  start_time?: string
+  end_time?: string
+  status?: string
+  plan_source?: string
+}
+
+export const previewDeleteByCriteria = (criteria: DeleteCriteria) =>
+  request
+    .post('/tasks/delete-by-criteria/preview', criteria)
+    .then((r) => r.data.data as { count: number })
+
+export const deleteTasksByCriteria = (criteria: DeleteCriteria) =>
+  request
+    .post('/tasks/delete-by-criteria', criteria)
+    .then((r) => r.data.data as { deleted: number })
+
 export const batchCreate = (items: Partial<TaskItem>[]) =>
   request.post('/tasks/batch', items).then((r) => r.data)
 
-export const importTasks = (type: 'excel' | 'json' | 'pdf', file: File, fileName: string) => {
-  const form = new FormData()
-  form.append('file', file, fileName)
-  return request
-    .post(`/tasks/import/${type}`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-    .then((r) => r.data)
-}
-
-export const importPdfAi = (file: File, fileName: string) => {
-  const form = new FormData()
-  form.append('file', file, fileName)
-  return request
-    .post('/tasks/import/pdf/ai', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-    .then((r) => r.data)
-}
-
-export interface PreviewTask {
-  date: string | null
-  subject: string
-  content: string
-  start_time: string | null
-  end_time: string | null
-  status: string
-  confidence?: number | null
-  reason?: string | null
-  date_note?: string | null
-  needs_review?: boolean
-}
-
-export const importPdfAiPreview = (file: File, fileName: string) => {
-  const form = new FormData()
-  form.append('file', file, fileName)
-  return request
-    .post('/tasks/import/pdf/ai', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-    .then((r) => r.data as { code: number; data: { count: number; tasks: PreviewTask[] } })
-}
-
-export const confirmPdfAi = (items: PreviewTask[]) =>
-  request
-    .post('/tasks/import/pdf/ai/confirm', items)
-    .then((r) => r.data as { code: number; message?: string; data: { count: number; skipped: number } })
-
 export const dailyStats = (date: string) =>
   request.get('/tasks/stats/daily', { params: { date } }).then((r) => r.data.data as DailyStats)
+
+
+// ---- 智能排程（M2）：艾宾浩斯间隔重复 ----
+export interface ScheduleResult {
+  count: number
+  skipped: number
+  intervals: number[]
+  tasks: TaskItem[]
+}
+
+export const generateSchedule = (items: { subject: string; content: string; priority?: number }[], studyDate?: string) =>
+  request
+    .post('/schedule/generate', { items, study_date: studyDate })
+    .then((r) => r.data as { code: number; message?: string; data: ScheduleResult })
+
+export const getReviewChain = (rootTaskId: number) =>
+  request
+    .get(`/schedule/chain/${rootTaskId}`)
+    .then((r) => r.data as { code: number; data: { root_task_id: number; tasks: TaskItem[] } })
+
+export interface UpcomingTask extends TaskItem {
+  round_label: string
+}
+
+export const getUpcomingReviews = (start: string, end: string) =>
+  request
+    .get('/schedule/upcoming', { params: { start, end } })
+    .then((r) => r.data as { code: number; data: { start: string; end: string; count: number; tasks: UpcomingTask[] } })

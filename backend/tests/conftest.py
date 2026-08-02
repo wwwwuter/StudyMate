@@ -1,12 +1,18 @@
-"""测试夹具：用 SQLite 内存库 + WECHAT_MOCK 构建独立测试应用。
+"""测试夹具：用 SQLite 内存库构建独立测试应用。
 
-不依赖本地 MySQL 服务；微信接口走 mock，保证可在任意环境跑通。
+完全离线，不依赖本地 MySQL、不依赖任何 AI API Key —— 系统只认用户在
+「设置」页配置的个人 Key，测试中一律为空，因此 AI 相关路径应报明确错误。
 """
-import pytest
-from sqlalchemy.pool import StaticPool
+import os
 
-from app import create_app
-from app.extensions import db
+# 必须在 import app 之前设置：app/config.py 在模块 import 时求值环境变量。
+os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+
+import pytest  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app import create_app  # noqa: E402
+from app.extensions import db  # noqa: E402
 
 
 @pytest.fixture
@@ -21,10 +27,8 @@ def app():
             'connect_args': {'check_same_thread': False},
             'poolclass': StaticPool,
         },
-        WECHAT_MOCK=True,
-        JWT_ACCESS_EXPIRATION_HOURS=2,
-        JWT_REFRESH_EXPIRATION_DAYS=30,
         WTF_CSRF_ENABLED=False,
+        RATELIMIT_ENABLED=False,
     )
     with application.app_context():
         db.create_all()
@@ -39,6 +43,9 @@ def client(app):
 
 
 @pytest.fixture
-def wx_headers():
-    """小程序 mock 登录后拿到的 Bearer 头。"""
-    return None
+def auth_headers(client):
+    """注册一个本地账号并返回 Bearer 头。"""
+    r = client.post('/api/auth/register',
+                    json={'username': 'tester', 'password': 'pw123456'})
+    assert r.status_code == 201, r.get_json()
+    return {'Authorization': f"Bearer {r.get_json()['data']['token']}"}

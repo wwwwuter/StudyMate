@@ -1,7 +1,7 @@
 # StudyMate 桌面端（Electron）
 
 Vue 前端 SPA 被打包进 Electron 外壳，产出 Windows 安装包，并集成自动更新。
-后端（Flask）**单独运行/部署**，桌面端通过 HTTP 连接（默认 `http://127.0.0.1:5000`）。
+**内置后端**：PyInstaller 冻结的 Flask 后端 exe 随安装包分发，启动时由主进程拉起（默认 SQLite，无需 Python/MySQL），用户双击安装即用。
 
 ## 目录结构
 
@@ -36,9 +36,9 @@ desktop/
 
 自 v1.1.0 起安装包捆绑 Python 后端（PyInstaller 冻结产物），用户双击即用、无需装 Python/MySQL：
 
-- **打包**：`cd backend && pyinstaller studymate-backend.spec --noconfirm` 产出 `backend/dist/studymate-backend/`（约 99MB），由 `build.extraResources` 拷进安装包 `resources/backend/`。
-- **启动链路**：`main.js` 在打包态 spawn `studymate-backend.exe --port <空闲端口> --data-dir <userData>/backend-data` → 轮询 `/api/health`（最长 30s）→ 就绪后写回 `settings.json` 的 `backendUrl` → 再开窗口；`before-quit` 时 `taskkill /T /F` 清理整个进程树。
-- **数据**：SQLite（`userData/backend-data/studymate.db`，首启 `db.create_all()` 自动建表），RAG 索引同目录；后端日志在 `userData/backend.log`。
+- **打包**：`cd backend && python build_backend.py` 产出 `backend/dist/studymate-backend/`（约 100MB，含 Python 解释器与依赖），由 `build.extraResources` 拷进安装包 `resources/backend/`。`build_backend.py` 使用动态路径；仓库里的 `studymate-backend.spec` 是历史产物（datas 硬编码了 `D:\StudyMate` 绝对路径），请勿直接使用。
+- **启动链路**：`main.js` 在打包态 spawn `studymate-backend.exe --port <空闲端口> --data-dir <appData>/StudyMate/backend-data` → 轮询 `/api/health`（最长 30s）→ 就绪后写回 `settings.json` 的 `backendUrl` → 再开窗口；`before-quit` 时 `taskkill /T /F` 清理整个进程树。
+- **数据**：SQLite（`%APPDATA%/StudyMate/backend-data/studymate.db`，首启自动建表 + `ensure_schema` 幂等补列）；后端日志在 `%APPDATA%/StudyMate/backend.log`。
 - **入口差异**（`backend/desktop_run.py` vs `run.py`）：waitress 替代 Flask dev server；DATABASE_URL 缺省为 SQLite；无 DeepSeek 密钥时 `PDF_AI_MOCK=true`、无微信 AppID 时 `WECHAT_MOCK=true`（保证单机可登录）。
 - **体积取舍**：spec 排除了 torch / sentence-transformers / faiss（否则 +2GB）。RAG 自动回退**关键词检索**；需完整向量检索时删掉 excludes 重打后端。
 - 若内置后端 exe 缺失（如开发者手工删了 extraResources），回退用 `settings.json` 里的外部 `backendUrl`。

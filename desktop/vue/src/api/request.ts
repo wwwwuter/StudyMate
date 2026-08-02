@@ -1,16 +1,12 @@
 import axios from 'axios'
 
-// 后端基地址：
-// - 开发态（vite dev proxy）：baseURL 用相对 '/api'，由 vite 转发到 Flask:5000
-// - 生产态（Electron 打包）：通过 preload 读取用户设置的后端地址（默认 http://127.0.0.1:5000）
-//   此时 baseURL = `${backendUrl}/api`，请求直达后端。
+// 后端基地址（兼容桌面与 Web 两种构建）：
+// - Web 生产态：构建时设 VITE_API_BASE（如 https://api.yourdomain.com）；同源 nginx 反代时留空。
+// - 桌面态：通过 preload 注入的 electronAPI 读取后端地址（默认 http://127.0.0.1:5088）。
+// - 兜底：相对 '/api'（开发态 vite proxy / Web 同源部署）。
 const ELECTRON_BACKEND =
-  (typeof window !== 'undefined' &&
-    (window as any).electronAPI?.getBackendUrl?.()) ||
-  ''
-const API_BASE = ELECTRON_BACKEND
-  ? `${ELECTRON_BACKEND.replace(/\/+$/, '')}/api`
-  : '/api'
+  (typeof window !== 'undefined' && (window as any).electronAPI?.getBackendUrl?.()) || ''
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || (ELECTRON_BACKEND ? `${ELECTRON_BACKEND.replace(/\/+$/, '')}/api` : '/api')
 
 // 全局 axios 实例
 const request = axios.create({

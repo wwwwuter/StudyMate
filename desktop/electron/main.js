@@ -95,8 +95,12 @@ async function startBackend() {
   }
 
   backendPort = await findFreePort(5000)
-  const dataDir = path.join(app.getPath('userData'), 'backend-data')
-  const logPath = path.join(app.getPath('userData'), 'backend.log')
+  // 固定使用 %APPDATA%/StudyMate，避免 app.name 随 package.json name 变化导致
+  // 历史脏数据目录（如 studymate-electron/backend-data）被复用而 schema 不匹配。
+  const appDataDir = path.join(app.getPath('appData'), 'StudyMate')
+  const dataDir = path.join(appDataDir, 'backend-data')
+  const logPath = path.join(appDataDir, 'backend.log')
+  fs.mkdirSync(appDataDir, { recursive: true })
   const logFd = fs.openSync(logPath, 'a')
 
   backendProc = spawn(exe, ['--port', String(backendPort), '--data-dir', dataDir], {
@@ -155,29 +159,36 @@ function createWindow() {
     },
   })
 
-  // 把渲染进程的 console 日志回写到 userData/renderer.log，便于排查白屏
+  // 把渲染进程的 console 日志回写到 %APPDATA%/StudyMate/renderer.log，便于排查白屏
   win.webContents.on('console-message', (event, level, message, line, sourceId) => {
     const levels = { 0: 'DEBUG', 1: 'INFO', 2: 'WARN', 3: 'ERROR' }
     const label = levels[level] || 'LOG'
     const line2 = `[renderer] [${label}] ${message}${sourceId ? ' @ ' + sourceId + ':' + line : ''}`
     console.log(line2)
     try {
-      const logPath = path.join(app.getPath('userData'), 'renderer.log')
+      const appDataDir = path.join(app.getPath('appData'), 'StudyMate')
+      fs.mkdirSync(appDataDir, { recursive: true })
+      const logPath = path.join(appDataDir, 'renderer.log')
       fs.appendFileSync(logPath, line2 + '\n')
     } catch (e) {}
   })
 
+  const rendererLogPath = () => {
+    const appDataDir = path.join(app.getPath('appData'), 'StudyMate')
+    fs.mkdirSync(appDataDir, { recursive: true })
+    return path.join(appDataDir, 'renderer.log')
+  }
   win.webContents.on('did-finish-load', () => {
     const u = win.webContents.getURL()
     console.log('[main] did-finish-load:', u)
     try {
-      fs.appendFileSync(path.join(app.getPath('userData'), 'renderer.log'), `[main] did-finish-load: ${u}\n`)
+      fs.appendFileSync(rendererLogPath(), `[main] did-finish-load: ${u}\n`)
     } catch (e) {}
   })
   win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.log('[main] did-fail-load:', errorCode, errorDescription, validatedURL)
     try {
-      fs.appendFileSync(path.join(app.getPath('userData'), 'renderer.log'), `[main] did-fail-load: ${errorCode} ${errorDescription} ${validatedURL}\n`)
+      fs.appendFileSync(rendererLogPath(), `[main] did-fail-load: ${errorCode} ${errorDescription} ${validatedURL}\n`)
     } catch (e) {}
   })
 

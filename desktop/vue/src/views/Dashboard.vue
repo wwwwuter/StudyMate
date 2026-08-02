@@ -1,226 +1,203 @@
 <template>
   <div class="dashboard">
-    <!-- 欢迎横幅 -->
-    <section class="hero">
-      <div class="hero-text">
-        <p class="hero-hello">下午好，考研同学 👋</p>
-        <h1>今天也要稳住节奏，离目标更近一步。</h1>
-        <p class="hero-sub">已连续打卡 <b>12</b> 天 · 本周计划完成 <b>68%</b></p>
-        <el-button type="primary" size="large" round class="hero-btn">
-          <el-icon><VideoPlay /></el-icon> 开始今日学习
-        </el-button>
-      </div>
-      <div class="hero-deco">
-        <div class="ring r1"></div>
-        <div class="ring r2"></div>
-        <div class="ring r3"></div>
-      </div>
-    </section>
+    <!-- 概览卡片 -->
+    <el-row :gutter="16">
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="never" class="ov-card">
+          <div class="ov-label">今日累计学习</div>
+          <div class="ov-value">{{ stats ? stats.total_hours : 0 }}<small>h</small></div>
+          <div class="ov-sub">{{ stats ? stats.session_count : 0 }} 次计时</div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="never" class="ov-card">
+          <div class="ov-label">今日计划完成率</div>
+          <div class="ov-value">{{ Math.round((stats ? stats.completion_rate : 0) * 100) }}<small>%</small></div>
+          <el-progress
+            :percentage="Math.round((stats ? stats.completion_rate : 0) * 100)"
+            :stroke-width="8"
+            class="ov-prog"
+          />
+          <div class="ov-sub">{{ stats ? stats.task_done : 0 }} / {{ stats ? stats.task_total : 0 }} 完成</div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="never" class="ov-card">
+          <div class="ov-label">当前任务</div>
+          <template v-if="current">
+            <div class="ov-value sm">{{ current.task ? current.task.subject : '自由计时' }}</div>
+            <div class="ov-sub">{{ liveElapsed }} 进行中</div>
+          </template>
+          <template v-else>
+            <div class="ov-value sm muted">暂无</div>
+            <div class="ov-sub">去计时页开始</div>
+          </template>
+        </el-card>
+      </el-col>
+    </el-row>
 
-    <!-- 统计卡 -->
-    <section class="stat-row">
-      <div v-for="s in stats" :key="s.label" class="stat-card">
-        <div class="stat-icon" :style="{ background: s.bg, color: s.color }">
-          <el-icon :size="22"><component :is="s.icon" /></el-icon>
-        </div>
-        <div class="stat-meta">
-          <div class="stat-value">{{ s.value }}</div>
-          <div class="stat-label">{{ s.label }}</div>
-        </div>
-        <div class="stat-trend" :class="s.up ? 'up' : 'down'">
-          <el-icon><CaretTop v-if="s.up" /><CaretBottom v-else /></el-icon>
-          {{ s.trend }}
-        </div>
-      </div>
-    </section>
-
-    <!-- 图表 + 计划 -->
-    <section class="mid-row">
-      <el-card class="chart-card" shadow="never">
-        <template #header>
+    <el-row :gutter="16" style="margin-top: 16px">
+      <el-col :xs="24" :lg="14">
+        <el-card shadow="never" class="plan-card">
           <div class="card-head">
-            <span class="card-title">近 7 日学习时长</span>
-            <el-tag size="small" type="success" effect="light">单位：小时</el-tag>
+            <span>今日计划</span>
+            <el-button text size="small" @click="goTasks">查看时间轴 →</el-button>
           </div>
-        </template>
-        <div ref="chartEl" class="chart"></div>
-      </el-card>
+          <div v-if="!tasks.length" class="empty">今天还没有计划，去「上传计划」让 AI 帮你排期吧。</div>
+          <ul v-else class="plan-list">
+            <li v-for="t in tasks" :key="t.id" class="plan-item" :class="{ done: t.status === 'done', cancelled: t.status === 'cancelled' }">
+              <span class="p-time">{{ t.start_time || '未排时' }}</span>
+              <span class="p-subj">{{ t.subject }}</span>
+              <span class="p-content">{{ t.content }}</span>
+              <el-button
+                v-if="t.status === 'pending'"
+                size="small" type="primary" plain
+                @click="startTask(t)"
+              >开始计时</el-button>
+              <el-tag v-else size="small" :type="t.status === 'done' ? 'success' : 'info'">
+                {{ t.status === 'done' ? '已完成' : '已取消' }}
+              </el-tag>
+            </li>
+          </ul>
+        </el-card>
+      </el-col>
 
-      <el-card class="plan-card" shadow="never">
-        <template #header>
-          <div class="card-head">
-            <span class="card-title">今日计划</span>
-            <el-button text type="primary" size="small">查看全部</el-button>
+      <el-col :xs="24" :lg="10">
+        <el-card shadow="never" class="quick-card">
+          <div class="card-head"><span>快捷操作</span></div>
+          <div class="quick-grid">
+            <el-button class="quick-btn" @click="goUpload">
+              <el-icon><Upload /></el-icon> 上传计划
+            </el-button>
+            <el-button class="quick-btn" @click="goTimer">
+              <el-icon><Timer /></el-icon> 开始计时
+            </el-button>
+            <el-button class="quick-btn" @click="goStats">
+              <el-icon><DataLine /></el-icon> 学习记录
+            </el-button>
+            <el-button class="quick-btn" @click="goSettings">
+              <el-icon><Setting /></el-icon> AI 设置
+            </el-button>
           </div>
-        </template>
-        <ul class="plan-list">
-          <li v-for="(p, i) in plans" :key="i" :class="{ done: p.done }">
-            <el-checkbox v-model="p.done" />
-            <div class="plan-body">
-              <div class="plan-name">{{ p.name }}</div>
-              <div class="plan-tag">
-                <el-tag size="small" :type="p.type" effect="plain">{{ p.cat }}</el-tag>
-                <span class="plan-time">{{ p.time }}</span>
-              </div>
-            </div>
-          </li>
-        </ul>
-      </el-card>
-    </section>
-
-    <!-- AI 助手卡 -->
-    <section>
-      <el-card class="ai-card" shadow="never">
-        <div class="ai-inner">
-          <div class="ai-badge"><el-icon><MagicStick /></el-icon> AI 学习助手</div>
-          <h3>卡住的知识点，直接问它</h3>
-          <p>让 AI 帮你梳理考点、生成错题解析、定制复习计划。</p>
-          <div class="ai-actions">
-            <el-button color="#0EA5E9" round>发起对话</el-button>
-            <el-button round plain color="#0EA5E9">生成今日复习清单</el-button>
-          </div>
-        </div>
-      </el-card>
-    </section>
+          <el-alert
+            v-if="current"
+            type="success"
+            :closable="false"
+            class="running-tip"
+            @close="goTimer"
+          >
+            正在计时：{{ current.task ? current.task.subject : '自由计时' }}（{{ liveElapsed }}）
+            <el-button text size="small" type="success" @click="goTimer">前往</el-button>
+          </el-alert>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import * as echarts from 'echarts'
-import {
-  Timer, List, Medal, Document, VideoPlay,
-  CaretTop, CaretBottom, MagicStick,
-} from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
+import { Upload, Timer, DataLine, Setting } from '@element-plus/icons-vue'
+import { getTimerCurrent, getPlanStats, startTimer, type TimerSessionItem, type PlanStats } from '@/api/plan'
+import { listTasks, type TaskItem } from '@/api/task'
 
-const stats = [
-  { label: '累计学习时长', value: '328 h', trend: '12%', up: true,  icon: Timer,   color: '#0F766E', bg: '#E7F1F0' },
-  { label: '今日任务',     value: '5 / 8', trend: '2',    up: true,  icon: List,    color: '#0EA5E9', bg: '#E0F2FE' },
-  { label: '连续打卡',     value: '12 天', trend: '3 天', up: true,  icon: Medal,   color: '#F59E0B', bg: '#FEF3C7' },
-  { label: '待复习资料',   value: '23',    trend: '5',    up: false, icon: Document,color: '#EF4444', bg: '#FEE2E2' },
-]
+const router = useRouter()
+const current = ref<TimerSessionItem | null>(null)
+const stats = ref<PlanStats | null>(null)
+const tasks = ref<TaskItem[]>([])
+const now = ref(Date.now())
+let tick: number | undefined
 
-const plans = ref([
-  { name: '英语阅读理解真题 2 篇', cat: '英语', type: 'warning' as const, time: '09:00', done: true },
-  { name: '数学高数·中值定理专题', cat: '数学', type: 'primary' as const, time: '14:00', done: false },
-  { name: '政治·马原重难点复盘',   cat: '政治', type: 'success' as const, time: '16:30', done: false },
-  { name: '专业课·数据结构刷题',   cat: '专业课', type: 'info' as const, time: '19:00', done: false },
-])
-
-const chartEl = ref<HTMLElement>()
-let chart: echarts.ECharts | null = null
-
-onMounted(() => {
-  if (!chartEl.value) return
-  chart = echarts.init(chartEl.value)
-  chart.setOption({
-    grid: { left: 36, right: 16, top: 24, bottom: 28 },
-    tooltip: { trigger: 'axis', axisPointer: { type: 'line' }, backgroundColor: '#fff', borderColor: '#E3EBE8' },
-    xAxis: {
-      type: 'category',
-      data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
-      axisLine: { lineStyle: { color: '#E3EBE8' } },
-      axisLabel: { color: '#5B6B66' },
-    },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: '#F1F6F4' } },
-      axisLabel: { color: '#93A39D' },
-    },
-    series: [{
-      name: '学习时长',
-      type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 8,
-      data: [4.2, 5.1, 3.8, 6.0, 5.5, 7.2, 4.9],
-      lineStyle: { width: 3, color: '#0F766E' },
-      itemStyle: { color: '#0F766E' },
-      areaStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(15,118,110,.28)' },
-          { offset: 1, color: 'rgba(15,118,110,.02)' },
-        ]),
-      },
-    }],
-  })
-  window.addEventListener('resize', () => chart?.resize())
+const liveElapsed = computed(() => {
+  if (!current.value) return '00:00:00'
+  const start = new Date(current.value.started_at).getTime()
+  return fmt(Math.floor((now.value - start) / 1000))
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', () => chart?.resize())
-  chart?.dispose()
+function fmt(s: number): string {
+  s = Math.max(0, Math.floor(s))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  const mm = String(m).padStart(2, '0')
+  const ss = String(sec).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+const todayStr = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+async function loadAll() {
+  try {
+    const [c, s, t] = await Promise.all([
+      getTimerCurrent(),
+      getPlanStats('day'),
+      listTasks({ date: todayStr() }),
+    ])
+    current.value = c.data || null
+    stats.value = s.data
+    const list = t.data || []
+    tasks.value = list
+      .slice()
+      .sort((a, b) => (a.start_time || '99:99').localeCompare(b.start_time || '99:99'))
+      .slice(0, 8)
+  } catch {
+    /* ignore */
+  }
+}
+
+async function startTask(t: TaskItem) {
+  try {
+    await startTimer({ task_id: t.id })
+    router.push('/timer')
+  } catch {
+    /* ignore */
+  }
+}
+
+const goUpload = () => router.push('/upload')
+const goTimer = () => router.push('/timer')
+const goStats = () => router.push('/stats')
+const goSettings = () => router.push('/settings')
+const goTasks = () => router.push('/tasks')
+
+onMounted(async () => {
+  await loadAll()
+  tick = window.setInterval(() => { now.value = Date.now() }, 1000)
 })
+onBeforeUnmount(() => { if (tick) clearInterval(tick) })
 </script>
 
 <style scoped>
-.dashboard { display: flex; flex-direction: column; gap: 20px; }
+.dashboard { max-width: 1100px; margin: 0 auto; }
+.ov-card { border-radius: 16px; }
+.ov-label { font-size: 13px; color: var(--text-muted); }
+.ov-value { font-size: 40px; font-weight: 800; color: var(--brand-700, #0F766E); line-height: 1.1; margin-top: 6px; }
+.ov-value small { font-size: 16px; margin-left: 3px; }
+.ov-value.sm { font-size: 22px; }
+.ov-value.muted { color: var(--text-muted); }
+.ov-sub { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.ov-prog { margin-top: 8px; }
 
-/* 横幅 */
-.hero {
-  position: relative; overflow: hidden;
-  background: linear-gradient(120deg, #0F766E 0%, #14B8A6 100%);
-  border-radius: var(--radius-lg);
-  padding: 28px 32px;
-  color: #fff;
-}
-.hero-hello { margin: 0; opacity: .85; font-size: 14px; }
-.hero-text h1 { margin: 6px 0 8px; font-size: 24px; font-weight: 700; }
-.hero-sub { margin: 0 0 18px; opacity: .9; font-size: 14px; }
-.hero-sub b { font-weight: 700; }
-.hero-btn { background: #fff; color: #0F766E; border: none; font-weight: 600; }
-.hero-deco { position: absolute; right: -40px; top: -40px; }
-.ring { position: absolute; border: 2px solid rgba(255,255,255,.18); border-radius: 50%; }
-.r1 { width: 180px; height: 180px; right: 60px; top: 20px; }
-.r2 { width: 120px; height: 120px; right: 150px; top: 90px; }
-.r3 { width: 70px;  height: 70px;  right: 30px; top: 130px; }
-
-/* 统计卡 */
-.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-.stat-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px;
-  display: flex; align-items: center; gap: 14px;
-  box-shadow: var(--shadow-sm);
-}
-.stat-icon { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0; }
-.stat-value { font-size: 22px; font-weight: 700; color: var(--text-strong); line-height: 1.2; }
-.stat-label { font-size: 12px; color: var(--text-muted); }
-.stat-trend { margin-left: auto; font-size: 12px; display: flex; align-items: center; gap: 2px; }
-.stat-trend.up { color: var(--success); }
-.stat-trend.down { color: var(--danger); }
-
-/* 中部 */
-.mid-row { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; }
-.card-head { display: flex; align-items: center; justify-content: space-between; }
-.card-title { font-weight: 600; color: var(--text-strong); }
-.chart-card, .plan-card { border-radius: var(--radius); }
-.chart { height: 280px; }
-
+.plan-card, .quick-card { border-radius: 16px; min-height: 280px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 12px; }
+.empty { color: var(--text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
 .plan-list { list-style: none; margin: 0; padding: 0; }
-.plan-list li {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 4px;
-  border-bottom: 1px solid var(--bg-soft);
+.plan-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 8px; border-bottom: 1px solid var(--border);
 }
-.plan-list li:last-child { border-bottom: none; }
-.plan-list li.done .plan-name { text-decoration: line-through; color: var(--text-muted); }
-.plan-body { flex: 1; }
-.plan-name { font-size: 14px; color: var(--text); }
-.plan-tag { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
-.plan-time { font-size: 12px; color: var(--text-muted); }
+.plan-item:last-child { border-bottom: none; }
+.plan-item.done { opacity: .55; }
+.plan-item.cancelled { opacity: .4; text-decoration: line-through; }
+.p-time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-secondary); width: 64px; }
+.p-subj { font-weight: 600; color: var(--text-strong); width: 90px; }
+.p-content { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* AI 卡 */
-.ai-card { border-radius: var(--radius-lg); border: none; background: linear-gradient(120deg, #E0F2FE 0%, #ECFDF5 100%); }
-.ai-inner { padding: 8px 4px; }
-.ai-badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: #0EA5E9; color: #fff;
-  padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
-}
-.ai-inner h3 { margin: 14px 0 6px; color: var(--text-strong); }
-.ai-inner p { margin: 0 0 16px; color: var(--text-secondary); font-size: 14px; }
-.ai-actions { display: flex; gap: 12px; }
+.quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.quick-btn { height: 64px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.running-tip { margin-top: 16px; }
 </style>

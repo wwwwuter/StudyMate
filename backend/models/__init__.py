@@ -1,10 +1,13 @@
 from models.user import User
 from models.task import StudyTask
 from models.record import StudyRecord
-from models.analysis import AIAnalysis
-from models.login_ticket import LoginTicket
-from models.material import Material
+from models.auth_session import AuthSession
 from models.reminder import Reminder, ReminderSetting
+from models.ai_setting import UserAISetting
+from models.timer_session import TimerSession
+from models.vision_setting import UserVisionSetting
+from models.pomodoro_cycle import PomodoroCycle
 
-__all__ = ['User', 'StudyTask', 'StudyRecord', 'AIAnalysis', 'LoginTicket', 'Material',
-           'Reminder', 'ReminderSetting']
+__all__ = ['User', 'StudyTask', 'StudyRecord', 'AuthSession',
+           'Reminder', 'ReminderSetting', 'UserAISetting', 'TimerSession',
+           'UserVisionSetting', 'PomodoroCycle']

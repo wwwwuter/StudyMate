@@ -1,7 +1,7 @@
 import os
 import time
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def _classify(exc: Exception) -> DeepSeekError:
             APIStatusError,
         )
         if isinstance(exc, AuthenticationError):
-            return DeepSeekAuthError(f'DeepSeek 认证失败（检查 DEEPSEEK_API_KEY）：{exc}')
+            return DeepSeekAuthError(f'AI 认证失败（请检查「设置」页配置的 API Key）：{exc}')
         if isinstance(exc, RateLimitError):
             return DeepSeekRateLimitError(f'DeepSeek 触发限流：{exc}')
         if isinstance(exc, (APITimeoutError, APIConnectionError)):
@@ -65,10 +65,10 @@ def _classify(exc: Exception) -> DeepSeekError:
 
 
 class DeepSeekClient:
-    """DeepSeek API 客户端封装（Phase 8 强化：重试 / 错误分类 / 可注入）。
+    """OpenAI 兼容 API 客户端封装（重试 / 错误分类 / 可注入）。
 
-    - 支持 env 配置：DEEPSEEK_API_KEY / DEEPSEEK_API_BASE / DEEPSEEK_MODEL /
-      DEEPSEEK_TIMEOUT / DEEPSEEK_MAX_RETRIES。
+    **Key 只能由调用方显式传入**（来源唯一：学生在「设置」页保存的配置）。
+    这里不读取任何环境变量 Key，系统不持有全局 Key。
     - 对瞬时错误（超时 / 429 / 5xx）做指数退避重试；认证错误不重试。
     - 可通过构造参数注入 client（测试用），无需真实网络。
     """
@@ -82,16 +82,14 @@ class DeepSeekClient:
         max_retries: Optional[int] = None,
         client: Any = None,
     ):
-        self.api_key = api_key if api_key is not None else os.getenv('DEEPSEEK_API_KEY', '')
-        self.api_base = api_base or os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
-        self.model = model or os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
-        self.timeout = timeout if timeout is not None else int(os.getenv('DEEPSEEK_TIMEOUT', '60'))
-        self.max_retries = max_retries if max_retries is not None else int(os.getenv('DEEPSEEK_MAX_RETRIES', '3'))
+        self.api_key = api_key or ''
+        self.api_base = api_base or 'https://api.deepseek.com'
+        self.model = model or 'deepseek-chat'
+        # 超时 / 重试次数属于运行参数（非密钥），仍允许 env 调优
+        self.timeout = timeout if timeout is not None else int(os.getenv('AI_TIMEOUT', '60'))
+        self.max_retries = max_retries if max_retries is not None else int(os.getenv('AI_MAX_RETRIES', '3'))
         self._client = client  # 注入用（测试）
         self._sleep = time.sleep  # 可注入以加速测试
-
-        if not self.api_key:
-            logger.warning('DEEPSEEK_API_KEY 未设置，AI 功能将不可用')
 
     def _get_client(self):
         """延迟创建 OpenAI 客户端（仅在实际调用时加载 openai）。"""
