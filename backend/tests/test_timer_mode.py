@@ -168,3 +168,27 @@ def test_pomodoro_break_not_counted(client, auth_headers):
     r = client.get('/api/stat/all', headers=auth_headers)
     d = r.get_json()['data']
     assert d['pomodoro_total'] == 1500  # 不能出现 1800
+
+
+def test_countdown_record_type(client, auth_headers):
+    """倒计时模式 → StudyRecord.record_type == 'countdown'，时长按实际跑了算。"""
+    uid = _uid(client)
+    r = client.post('/api/plans/timer/start', headers=auth_headers,
+                    json={'mode': 'countdown', 'duration': 600})
+    assert r.status_code == 200
+    sid = r.get_json()['data']['id']
+    # 模拟已跑 2 分钟
+    _set_started_ago(client, sid, 120)
+    r = client.post('/api/plans/timer/stop', headers=auth_headers, json={})
+    assert r.status_code == 200
+
+    with client.application.app_context():
+        rec = (StudyRecord.query
+               .filter_by(user_id=uid, record_type=StudyRecord.MODE_COUNTDOWN)
+               .order_by(StudyRecord.id.desc()).first())
+        assert rec is not None
+        assert rec.duration == 120  # 实际跑了 2 分钟
+
+    r = client.get('/api/stat/all', headers=auth_headers)
+    d = r.get_json()['data']
+    assert d['countdown_total'] == 120

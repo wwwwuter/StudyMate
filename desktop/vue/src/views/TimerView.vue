@@ -6,6 +6,7 @@
         <el-tag v-if="mode === 'pomodoro' && pomodoroActive" :type="pomoPhase === 'work' ? 'danger' : 'success'" size="small">
           {{ pomoPhase === 'work' ? '🍅 专注中' : '☕ 休息中' }}
         </el-tag>
+        <el-tag v-else-if="mode === 'countdown' && countdownActive" type="warning" size="small">⏳ 倒计时</el-tag>
         <el-tag v-else-if="current.task" type="primary" size="small">{{ current.task.subject }}</el-tag>
         <el-tag v-else type="info" size="small">自由计时</el-tag>
         <span v-if="current.note" class="run-note">· {{ current.note }}</span>
@@ -14,6 +15,9 @@
       <div class="run-sub">
         <template v-if="mode === 'pomodoro' && pomodoroActive">
           {{ pomoPhase === 'work' ? '专注剩余' : '休息剩余' }}
+        </template>
+        <template v-else-if="mode === 'countdown' && countdownActive">
+          倒计时剩余
         </template>
         <template v-else-if="current.task">
           {{ current.task.content }}
@@ -52,6 +56,29 @@
           <el-button type="primary" size="large" @click="startPomodoro">开始番茄钟</el-button>
         </el-tab-pane>
 
+        <!-- 倒计时 -->
+        <el-tab-pane label="倒计时" name="countdown">
+          <div class="pomo-config">
+            <span>目标 <el-input-number v-model="countdownMin" :min="1" :max="180" size="small" /> 分</span>
+            <el-select
+              v-model="countdownTaskId"
+              placeholder="可选：绑定一个今日任务"
+              clearable
+              style="min-width: 200px"
+              size="small"
+            >
+              <el-option
+                v-for="t in planTasks"
+                :key="t.id"
+                :label="`${t.start_time || '—'} · ${t.subject} · ${t.content}`"
+                :value="t.id"
+              />
+            </el-select>
+          </div>
+          <p class="mode-hint">到 0 自动结束并保存。可绑定任务以计入该任务的学习时间。</p>
+          <el-button type="primary" size="large" @click="startCountdown">开始倒计时</el-button>
+        </el-tab-pane>
+
         <!-- 自由计时 -->
         <el-tab-pane label="自由计时" name="free">
           <el-input v-model="freeNote" placeholder="可选备注，如「背单词 30 分钟」" class="free-note" />
@@ -71,7 +98,7 @@ import { startTimer, stopTimer, getTimerCurrent, reportPomodoroCycle, type Timer
 import { listTasks, type TaskItem } from '@/api/task'
 
 const route = useRoute()
-type Mode = 'task' | 'pomodoro' | 'free'
+type Mode = 'task' | 'pomodoro' | 'countdown' | 'free'
 const mode = ref<Mode>('task')
 const current = ref<TimerSessionItem | null>(null)
 const planTasks = ref<TaskItem[]>([])
@@ -85,6 +112,12 @@ const pomodoroActive = ref(false)
 const pomoPhase = ref<'work' | 'break'>('work')
 const pomoLeft = ref(0)
 const pomoCycle = ref(1)
+
+// 倒计时本地状态
+const countdownMin = ref(25)
+const countdownTaskId = ref<number | null>(null)
+const countdownActive = ref(false)
+const countdownLeft = ref(0)
 
 let timer: number | undefined
 
@@ -109,6 +142,7 @@ const elapsedSec = computed(() => {
 
 const clockText = computed(() => {
   if (mode.value === 'pomodoro' && pomodoroActive.value) return fmt(pomoLeft.value)
+  if (mode.value === 'countdown' && countdownActive.value) return fmt(countdownLeft.value)
   if (current.value) return fmt(elapsedSec.value)
   return '00:00'
 })
@@ -143,6 +177,7 @@ async function startTask(t: TaskItem) {
     current.value = res.data
     mode.value = 'task'
     pomodoroActive.value = false
+    countdownActive.value = false
   } catch (e: any) {
     ElMessage.error(e?.message || '开始计时失败')
   }
@@ -157,6 +192,26 @@ async function startPomodoro() {
     pomoPhase.value = 'work'
     pomoLeft.value = workMin.value * 60
     pomoCycle.value = 1
+    countdownActive.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.message || '开始失败')
+  }
+}
+
+async function startCountdown() {
+  const minutes = Math.max(1, Math.floor(countdownMin.value || 1))
+  try {
+    const payload: { mode: 'countdown'; duration: number; task_id?: number } = {
+      mode: 'countdown',
+      duration: minutes * 60,
+    }
+    if (countdownTaskId.value) payload.task_id = countdownTaskId.value
+    const res = await startTimer(payload)
+    current.value = res.data
+    mode.value = 'countdown'
+    countdownActive.value = true
+    countdownLeft.value = minutes * 60
+    pomodoroActive.value = false
   } catch (e: any) {
     ElMessage.error(e?.message || '开始失败')
   }
@@ -168,6 +223,7 @@ async function startFree() {
     current.value = res.data
     mode.value = 'free'
     pomodoroActive.value = false
+    countdownActive.value = false
   } catch (e: any) {
     ElMessage.error(e?.message || '开始失败')
   }
@@ -197,6 +253,7 @@ async function stop(silent = false) {
   }
   current.value = null
   pomodoroActive.value = false
+  countdownActive.value = false
   mode.value = 'task'
   await loadTasks()
 }
@@ -216,6 +273,12 @@ function tick() {
         // 休息结束：完成一个番茄周期，自动保存
         stop(true)
       }
+    }
+  } else if (countdownActive.value && current.value) {
+    countdownLeft.value--
+    if (countdownLeft.value <= 0) {
+      // 倒计时归零：自动结束并保存
+      stop(true)
     }
   }
 }
@@ -246,7 +309,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .modes { text-align: left; }
 .mode-hint { font-size: 13px; color: var(--text-muted); margin: 8px 0 16px; }
 .empty { color: var(--text-muted); font-size: 13px; padding: 16px 0; }
-.pomo-config { display: flex; gap: 20px; justify-content: center; margin: 12px 0; font-size: 14px; }
+.pomo-config { display: flex; gap: 20px; justify-content: center; margin: 12px 0; font-size: 14px; align-items: center; flex-wrap: wrap; }
 .free-note { max-width: 360px; margin: 12px auto; }
 
 .pick-list { list-style: none; margin: 0; padding: 0; }
