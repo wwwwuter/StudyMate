@@ -2,16 +2,17 @@
 
 系统不持有任何全局 API Key —— 所有 AI 能力使用的 Key 都由学生在「设置」页
 自行填写，仅保存在本机数据库（user_ai_settings）。本模块只负责这份配置的
-读取与保存，以及基于用户数据的 AI 学习分析。
+读取与保存，以及基于用户数据的 AI 学习建议。
 """
+import logging
+
 from flask import Blueprint, request, jsonify
-from datetime import date
+from datetime import datetime
 
 from models.ai_setting import UserAISetting, DEFAULT_API_BASE, DEFAULT_MODEL
-from models.task import StudyTask
-from models.timer_session import TimerSession
 from utils.local_auth import login_required
-from sqlalchemy import func
+
+logger = logging.getLogger(__name__)
 
 ai_bp = Blueprint('ai', __name__)
 
@@ -51,66 +52,68 @@ def save_key_settings(current_user):
 @ai_bp.route('/analyze', methods=['POST'])
 @login_required
 def analyze(current_user):
-    """基于当日 StudyTask + TimerSession 生成 AI 学习分析（总结 / 问题 / 建议）。
+    """基于今日复习情况生成 AI 学习建议（双轨）。
 
-    仅使用用户在「设置」页配置的 Key；未配置或无效直接返回 400 引导去设置页。
+    - 配置了可用 Key：调用用户的 AI 生成个性化建议（source='ai'）；
+      调用失败自动回退规则模板，不阻塞页面。
+    - 未配置 Key / 已禁用：走规则模板建议（source='template'），
+      基于今日统计的完成率 / 时长 / 科目均衡 / 模式分布生成。
+    数据源统一使用 today_stat()（StudyRecord + StudyTask，与统计页同口径）。
     """
     from ai.service import AIService
+    from services.stat_service import today_stat, build_template_advice
 
-    try:
-        client = AIService().require_client(current_user.id)
-    except ValueError as e:
-        return jsonify({'code': 400, 'message': str(e)}), 400
+    stat = today_stat(current_user)
+    client = AIService().client_for_user(current_user.id)
 
-    today = date.today()
-    tasks = StudyTask.query.filter_by(user_id=current_user.id, date=today).all()
-    sessions = TimerSession.query.filter(
-        TimerSession.user_id == current_user.id,
-        TimerSession.status == TimerSession.STATUS_DONE,
-        func.date(TimerSession.ended_at) == today.isoformat(),
-    ).all()
+    if client is not None and client.is_available():
+        try:
+            lines = [
+                f'今日任务共 {stat["task_total"]} 项，已完成 {stat["task_completed"]} 项（完成率 {stat["completion_rate"]}%）。',
+                f'今日学习时长 {round(stat["study_time"] / 60)} 分钟。',
+            ]
+            if stat.get('subjects'):
+                lines.append('按科目：' + '、'.join(
+                    f"{s['name']} {round(s['time'] / 60)}分钟" for s in stat['subjects']
+                ))
+            else:
+                lines.append('按科目：（暂无）')
+            lines.append(
+                '计时模式：番茄钟 {pomo} 分钟、任务 {task} 分钟、自由 {free} 分钟、倒计时 {cd} 分钟。'.format(
+                    pomo=round(stat.get('pomodoro_time', 0) / 60),
+                    task=round(stat.get('task_time', 0) / 60),
+                    free=round(stat.get('free_time', 0) / 60),
+                    cd=round(stat.get('countdown_time', 0) / 60),
+                )
+            )
+            lines.append('今日任务明细：')
+            for t in stat.get('tasks', []):
+                done_flag = '已完成' if t.get('status') == 'done' else '未完成'
+                lines.append(f"- {t.get('subject', '')} / {t.get('content', '')} [{done_flag}]")
 
-    total = len(tasks)
-    done = sum(1 for t in tasks if t.status == StudyTask.STATUS_DONE)
-    actual_by_subject: dict[str, int] = {}
-    for s in sessions:
-        subj = '未关联'
-        if s.task_id:
-            t = StudyTask.query.get(s.task_id)
-            if t:
-                subj = t.subject
-        actual_by_subject[subj] = actual_by_subject.get(subj, 0) + (s.duration_seconds or 0)
+            prompt = (
+                '你是考研学习教练。下面是某学生今日的学习复习情况，请基于数据给出分析与建议。\n'
+                + '\n'.join(lines)
+                + '\n\n请只输出如下 JSON（不要 Markdown 围栏，不要额外说明）：\n'
+                '{"summary":"今日学习总结（1-2句）",'
+                '"problems":"发现的问题（如某科目投入不足、完成率低、时间分配不均）",'
+                '"suggestions":"可执行的调整建议（如明天增加某科目 X 分钟）"}'
+            )
+            messages = [
+                {'role': 'system', 'content': '你是严谨的学习教练，只输出 JSON。'},
+                {'role': 'user', 'content': prompt},
+            ]
+            raw = client.chat(messages, temperature=0.4, max_tokens=1024)
+            result = _parse_analyze(raw)
+            result['source'] = 'ai'
+            result['generated_at'] = datetime.now().isoformat(timespec='seconds')
+            return jsonify({'code': 200, 'data': result})
+        except Exception as e:
+            logger.warning(f'AI 学习建议生成失败，回退模板：{e}')
 
-    lines = [f'今日任务共 {total} 项，已完成 {done} 项。']
-    for t in tasks:
-        plan = t.estimated_minutes or 0
-        lines.append(f'- {t.subject} / {t.content} [{"已完成" if t.status == StudyTask.STATUS_DONE else "未完成"}] 计划约 {plan} 分钟')
-    lines.append('今日实际专注时长（按科目，单位分钟）：')
-    if actual_by_subject:
-        for k, v in actual_by_subject.items():
-            lines.append(f'- {k}: {round(v / 60)} 分钟')
-    else:
-        lines.append('- （暂无计时记录）')
-
-    prompt = (
-        '你是考研学习教练。下面是某学生今日的学习计划执行情况，请基于数据给出分析。\n'
-        + '\n'.join(lines)
-        + '\n\n请只输出如下 JSON（不要 Markdown 围栏，不要额外说明）：\n'
-        '{"summary":"今日学习总结（1-2句）",'
-        '"problems":"发现的问题（如某科目投入不足、完成率低、时间分配不均）",'
-        '"suggestions":"可执行的调整建议（如明天增加某科目 X 分钟）"}'
-    )
-    messages = [
-        {'role': 'system', 'content': '你是严谨的学习教练，只输出 JSON。'},
-        {'role': 'user', 'content': prompt},
-    ]
-
-    try:
-        raw = client.chat(messages, temperature=0.4, max_tokens=1024)
-    except Exception as e:
-        return jsonify({'code': 500, 'message': f'AI 分析失败：{e}'}), 500
-
-    result = _parse_analyze(raw)
+    result = build_template_advice(stat)
+    result['source'] = 'template'
+    result['generated_at'] = datetime.now().isoformat(timespec='seconds')
     return jsonify({'code': 200, 'data': result})
 
 

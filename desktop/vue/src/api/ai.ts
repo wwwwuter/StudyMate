@@ -20,3 +20,17 @@ export const saveKeySettings = (payload: {
   request
     .post('/ai/key-settings', payload)
     .then((r) => r.data as { code: number; message?: string; data: KeySettings })
+
+/** AI 学习建议（基于今日复习情况；source=ai 为 AI 生成，template 为规则模板降级）。 */
+export interface StudyAdvice {
+  source: 'ai' | 'template'
+  summary: string
+  problems: string
+  suggestions: string
+  generated_at?: string
+}
+
+export const analyzeToday = () =>
+  request
+    .post('/ai/analyze')
+    .then((r) => r.data as { code: number; message?: string; data: StudyAdvice })

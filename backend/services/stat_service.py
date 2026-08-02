@@ -222,3 +222,81 @@ def all_stat(user) -> dict:
             if v > 0
         ],
     }
+
+
+def build_template_advice(stat: dict) -> dict:
+    """基于今日统计的规则模板建议（无 AI Key / AI 调用失败时的降级路径）。
+
+    输入为 today_stat() 的返回值，输出 {summary, problems, suggestions}。
+    只做确定性规则判断，不依赖任何外部服务，便于单测。
+    """
+    study_time = stat.get('study_time') or 0
+    total = stat.get('task_total') or 0
+    done = stat.get('task_completed') or 0
+    rate = stat.get('completion_rate') or 0
+    subjects = stat.get('subjects') or []
+    pomo_time = stat.get('pomodoro_time') or 0
+
+    minutes = round(study_time / 60)
+
+    if study_time == 0 and total == 0:
+        return {
+            'summary': '今天还没有学习记录。',
+            'problems': '暂无任务与计时数据，今日复习尚未开始。',
+            'suggestions': '先给自己安排 2-3 项小任务并打开计时器，让复习进入正轨。',
+        }
+
+    problems: list[str] = []
+    suggestions: list[str] = []
+
+    # 完成率维度
+    if total > 0:
+        if rate >= 70:
+            if rate < 100:
+                suggestions.append(f'今天完成率 {rate}%，把剩余任务按优先级快速收尾。')
+        elif rate >= 50:
+            problems.append(f'任务完成率仅 {rate}%，已过半未完成。')
+            suggestions.append('挑 1-2 个最关键的任务优先补完，避免积压到明天。')
+        else:
+            problems.append(f'任务完成率偏低（{rate}%），大量计划未执行。')
+            suggestions.append('今晚补 30 分钟攻克 1 个高优先任务；明天适当减少计划量，先保证完成。')
+
+    # 时长维度
+    if study_time == 0:
+        problems.append('今天还没有有效的学习时长记录。')
+        suggestions.append('打开计时器（任务计时 / 番茄钟）开始学习，数据才会进入统计。')
+    elif minutes < 60:
+        problems.append(f'今日学习时长仅 {minutes} 分钟，明显偏少。')
+        suggestions.append('建议再安排 1-2 个 25-45 分钟的专注块（可开启番茄钟）。')
+    elif minutes < 180:
+        suggestions.append(f'今日累计 {minutes} 分钟，保持节奏，可再补一个专注块到 3 小时。')
+    else:
+        suggestions.append(f'今日累计 {minutes} 分钟，时长充足，注意劳逸结合。')
+
+    # 科目均衡维度
+    if study_time > 0 and len(subjects) > 1:
+        top = subjects[0]
+        top_ratio = top.get('time', 0) / study_time
+        if top_ratio >= 0.7:
+            problems.append(f'学习时间过于集中在「{top["name"]}」（占比 {round(top_ratio * 100)}%）。')
+            suggestions.append('明天给薄弱 / 未覆盖科目预留至少一个专注块，保持科目均衡。')
+
+    # 模式维度：没用过番茄钟时给一条引导
+    if study_time > 0 and pomo_time == 0:
+        suggestions.append('番茄钟专注模式尚未使用，可尝试 25+5 循环提升专注效率。')
+
+    if not problems:
+        problems.append('今日执行情况总体良好，暂无明显问题。')
+    if not suggestions:
+        suggestions.append('保持当前节奏，明日可适当增加一个薄弱科目模块。')
+
+    summary = (
+        f'今日复习 {minutes} 分钟，完成任务 {done}/{total}（完成率 {rate}%）。'
+        if total
+        else f'今日复习 {minutes} 分钟，暂无计划任务。'
+    )
+    return {
+        'summary': summary,
+        'problems': '；'.join(problems),
+        'suggestions': '；'.join(suggestions),
+    }
