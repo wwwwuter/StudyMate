@@ -62,6 +62,14 @@
               <span class="advice-label">建议</span>
               <span>{{ advice.suggestions || '无' }}</span>
             </div>
+            <div v-if="advice.deviation?.length" class="advice-row deviation">
+              <span class="advice-label">计划偏差</span>
+              <span class="dev-list">
+                <span v-for="d in advice.deviation" :key="d.subject" class="dev-item">
+                  「{{ d.subject }}」近 7 天完成率 {{ d.rate }}%（{{ d.done }}/{{ d.total }}）
+                </span>
+              </span>
+            </div>
             <p v-if="advice.source === 'template'" class="advice-hint">
               当前为规则生成建议；到「设置」页填入 API Key 后可获得更智能的个性化分析。
             </p>
@@ -229,6 +237,15 @@ onActivated(load)
 .advice-row.suggestion {
   background: #d1fae5;
   color: #065f46;
+}
+.advice-row.deviation {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.dev-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .advice-hint {
   margin: 8px 0 0;

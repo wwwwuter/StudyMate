@@ -248,10 +248,11 @@ def all_stat(user) -> dict:
     }
 
 
-def build_template_advice(stat: dict) -> dict:
+def build_template_advice(stat: dict, deviation: list | None = None) -> dict:
     """基于今日统计的规则模板建议（无 AI Key / AI 调用失败时的降级路径）。
 
     输入为 today_stat() 的返回值，输出 {summary, problems, suggestions}。
+    deviation 为 plan_deviation() 结果（可选），用于补充「计划偏差」建议。
     只做确定性规则判断，不依赖任何外部服务，便于单测。
     """
     study_time = stat.get('study_time') or 0
@@ -309,6 +310,15 @@ def build_template_advice(stat: dict) -> dict:
     if study_time > 0 and pomo_time == 0:
         suggestions.append('番茄钟专注模式尚未使用，可尝试 25+5 循环提升专注效率。')
 
+    # 计划偏差维度：近 7 天低完成率科目 → 调整建议
+    for d in deviation or []:
+        problems.append(
+            f'「{d["subject"]}」近 7 天完成率仅 {d["rate"]}%（{d["done"]}/{d["total"]}）。'
+        )
+        suggestions.append(
+            f'建议调整「{d["subject"]}」的学习时间/任务量：拆分小目标、优先保证最低完成量。'
+        )
+
     if not problems:
         problems.append('今日执行情况总体良好，暂无明显问题。')
     if not suggestions:
@@ -324,3 +334,26 @@ def build_template_advice(stat: dict) -> dict:
         'problems': '；'.join(problems),
         'suggestions': '；'.join(suggestions),
     }
+
+
+def plan_deviation(user, days: int = 7) -> list[dict]:
+    """最近 N 天按科目的计划执行偏差：完成任务数 >= 2 且完成率 < 50% 的科目。
+
+    返回 [{subject, total, done, rate}]，用于 AI 分析「计划偏差」（如 408 连续低完成率）。
+    """
+    start = _today() - timedelta(days=days - 1)
+    tasks = StudyTask.query.filter(
+        StudyTask.user_id == user.id,
+        StudyTask.date >= start,
+    ).all()
+    by_subj: dict[str, list[int]] = {}
+    for t in tasks:
+        by_subj.setdefault(t.subject, []).append(1 if t.status == StudyTask.STATUS_DONE else 0)
+    out = []
+    for subj, flags in by_subj.items():
+        total = len(flags)
+        done = sum(flags)
+        if total >= 2 and done / total < 0.5:
+            out.append({'subject': subj, 'total': total, 'done': done,
+                        'rate': round(done / total * 100)})
+    return sorted(out, key=lambda x: x['rate'])

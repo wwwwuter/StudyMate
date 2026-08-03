@@ -143,3 +143,42 @@ def test_analyze_ai_failure_falls_back_to_template(client, auth_headers, monkeyp
     r = client.post('/api/ai/analyze', headers=auth_headers)
     assert r.status_code == 200
     assert r.get_json()['data']['source'] == 'template'
+
+
+# ------------------------- Phase 7：计划偏差 -------------------------
+
+def _add_task_days_ago(client, uid, days_ago, subject, status):
+    with client.application.app_context():
+        import datetime as dt
+        t = StudyTask(user_id=uid, date=dt.date.today() - dt.timedelta(days=days_ago),
+                      subject=subject, content='任务', status=status)
+        db.session.add(t)
+        db.session.commit()
+
+
+def test_plan_deviation_detects_low_rate(client, auth_headers):
+    """近 7 天 408 完成率 < 50% 且任务数 >= 2 → 进入偏差列表。"""
+    from services.stat_service import plan_deviation
+    uid = _uid(client)
+    for i in range(4):
+        _add_task_days_ago(client, uid, i, '408', 'done' if i == 0 else 'pending')
+    with client.application.app_context():
+        from models.user import User
+        u = db.session.query(User).first()
+        dev = plan_deviation(u)
+    assert any(d['subject'] == '408' and d['rate'] == 25 for d in dev)
+
+
+def test_analyze_template_includes_deviation(client, auth_headers):
+    """模板降级路径：analyze 返回 deviation 且 problems 含偏差提示。"""
+    uid = _uid(client)
+    for i in range(4):
+        _add_task_days_ago(client, uid, i, '英语', 'done' if i == 0 else 'pending')
+    r = client.post('/api/ai/analyze', headers=auth_headers)
+    assert r.status_code == 200
+    data = r.get_json()['data']
+    assert data['source'] == 'template'
+    assert isinstance(data['deviation'], list)
+    assert any(d['subject'] == '英语' for d in data['deviation'])
+    assert '英语' in data['problems']
+    assert '调整' in data['suggestions']

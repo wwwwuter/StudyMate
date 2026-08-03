@@ -61,9 +61,10 @@ def analyze(current_user):
     数据源统一使用 today_stat()（StudyRecord + StudyTask，与统计页同口径）。
     """
     from ai.service import AIService
-    from services.stat_service import today_stat, build_template_advice
+    from services.stat_service import today_stat, build_template_advice, plan_deviation
 
     stat = today_stat(current_user)
+    deviation = plan_deviation(current_user, days=7)  # 近 7 天低完成率科目（计划偏差）
     client = AIService().client_for_user(current_user.id)
 
     if client is not None and client.is_available():
@@ -90,14 +91,22 @@ def analyze(current_user):
             for t in stat.get('tasks', []):
                 done_flag = '已完成' if t.get('status') == 'done' else '未完成'
                 lines.append(f"- {t.get('subject', '')} / {t.get('content', '')} [{done_flag}]")
+            # 计划偏差：近 7 天低完成率科目
+            if deviation:
+                lines.append('近 7 天计划偏差（完成率 < 50% 的科目）：')
+                for d in deviation:
+                    lines.append(f"- {d['subject']}: {d['done']}/{d['total']}（完成率 {d['rate']}%）")
+            else:
+                lines.append('近 7 天无显著计划偏差。')
 
             prompt = (
-                '你是考研学习教练。下面是某学生今日的学习复习情况，请基于数据给出分析与建议。\n'
+                '你是考研学习教练。下面是某学生今日的学习复习情况与近 7 天计划偏差，'
+                '请基于数据给出分析与建议。\n'
                 + '\n'.join(lines)
                 + '\n\n请只输出如下 JSON（不要 Markdown 围栏，不要额外说明）：\n'
                 '{"summary":"今日学习总结（1-2句）",'
-                '"problems":"发现的问题（如某科目投入不足、完成率低、时间分配不均）",'
-                '"suggestions":"可执行的调整建议（如明天增加某科目 X 分钟）"}'
+                '"problems":"发现的问题（含计划偏差：如某科目连续低完成率）",'
+                '"suggestions":"可执行的调整建议（如调整某科目时间/任务量）"}'
             )
             messages = [
                 {'role': 'system', 'content': '你是严谨的学习教练，只输出 JSON。'},
@@ -106,13 +115,15 @@ def analyze(current_user):
             raw = client.chat(messages, temperature=0.4, max_tokens=1024)
             result = _parse_analyze(raw)
             result['source'] = 'ai'
+            result['deviation'] = deviation
             result['generated_at'] = datetime.now().isoformat(timespec='seconds')
             return jsonify({'code': 200, 'data': result})
         except Exception as e:
             logger.warning(f'AI 学习建议生成失败，回退模板：{e}')
 
-    result = build_template_advice(stat)
+    result = build_template_advice(stat, deviation)
     result['source'] = 'template'
+    result['deviation'] = deviation
     result['generated_at'] = datetime.now().isoformat(timespec='seconds')
     return jsonify({'code': 200, 'data': result})
 

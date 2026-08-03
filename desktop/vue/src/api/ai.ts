@@ -27,6 +27,8 @@ export interface StudyAdvice {
   summary: string
   problems: string
   suggestions: string
+  /** 近 7 天低完成率科目（计划偏差） */
+  deviation?: { subject: string; total: number; done: number; rate: number }[]
   generated_at?: string
 }
 
