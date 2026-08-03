@@ -143,12 +143,16 @@ def today_stat(user) -> dict:
             'status': status,
         })
 
+    # 当前任务：今日最早未完成（pending/doing）的任务
+    current_task = next((t for t in task_list if t['status'] in ('pending', 'doing')), None)
+
     return {
         'date': today_iso,
         'study_time': study_time,
         'task_total': task_total,
         'task_completed': task_completed,
         'completion_rate': completion_rate,
+        'current_task': current_task,
         'subjects': subjects,
         'tasks': task_list,
         # 计时模式维度
@@ -175,6 +179,24 @@ def all_stat(user) -> dict:
     total_tasks = len(tasks)
     completed_tasks = sum(1 for t in tasks if t.status == StudyTask.STATUS_DONE)
     completion_rate = round(completed_tasks / total_tasks * 100) if total_tasks else 0
+    # 计划执行率：完成任务数 / 计划任务总数（与完成率同源，语义上强调「计划执行」）
+    plan_execution_rate = completion_rate
+
+    # 按计划版本（StudyPlan）聚合执行情况
+    from models.plan import StudyPlan
+    plan_stats = []
+    for p in StudyPlan.query.filter_by(user_id=user.id, status=StudyPlan.STATUS_ACTIVE).all():
+        pts = StudyTask.query.filter_by(user_id=user.id, plan_id=p.id).all()
+        ptot = len(pts)
+        pdone = sum(1 for x in pts if x.status == StudyTask.STATUS_DONE)
+        plan_stats.append({
+            'plan_id': p.id,
+            'plan_name': p.name,
+            'version': p.version,
+            'total': ptot,
+            'done': pdone,
+            'rate': round(pdone / ptot * 100) if ptot else 0,
+        })
 
     continuous_days = _calc_streak(user.id)
     mode_time, mode_sessions = _split_by_mode(records)
@@ -203,6 +225,8 @@ def all_stat(user) -> dict:
         'total_sessions': total_sessions,
         'completed_tasks': completed_tasks,
         'completion_rate': completion_rate,
+        'plan_execution_rate': plan_execution_rate,
+        'plan_stats': plan_stats,
         'continuous_days': continuous_days,
         'trend': trend,
         'subjects': subjects,

@@ -37,6 +37,7 @@ export interface TodayStat {
   task_total: number
   task_completed: number
   completion_rate: number
+  current_task: TodayTaskItem | null
   subjects: StatSubject[]
   tasks: TodayTaskItem[]
   // 计时模式维度
@@ -51,12 +52,24 @@ export interface TodayStat {
   }
 }
 
+/** 计划版本执行情况（Phase 6）。 */
+export interface PlanStatItem {
+  plan_id: number
+  plan_name: string
+  version: number
+  total: number
+  done: number
+  rate: number
+}
+
 /** 全部统计。 */
 export interface AllStat {
   total_time: number
   total_sessions: number
   completed_tasks: number
   completion_rate: number
+  plan_execution_rate: number
+  plan_stats: PlanStatItem[]
   continuous_days: number
   trend: TrendPoint[]
   subjects: StatSubject[]

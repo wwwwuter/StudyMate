@@ -12,6 +12,22 @@
       </el-col>
     </el-row>
 
+    <!-- 当前任务（今日最早未完成） -->
+    <el-row v-if="data?.current_task" :gutter="16" class="section">
+      <el-col :xs="24">
+        <div class="current-task" @click="openTask(data!.current_task!)">
+          <el-icon class="ct-icon"><Timer /></el-icon>
+          <span class="ct-label">当前任务</span>
+          <b>{{ data.current_task.subject }}</b>
+          <span class="ct-content">{{ data.current_task.content }}</span>
+          <span v-if="data.current_task.start_time" class="ct-time">
+            {{ data.current_task.start_time }}-{{ data.current_task.end_time || '…' }}
+          </span>
+          <span class="ct-go">去计时 →</span>
+        </div>
+      </el-col>
+    </el-row>
+
     <!-- AI 学习建议（有 Key 走 AI，无 Key 走规则模板降级） -->
     <el-row :gutter="16" class="section">
       <el-col :xs="24">
@@ -70,7 +86,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
-import { MagicStick } from '@element-plus/icons-vue'
+import { MagicStick, Timer } from '@element-plus/icons-vue'
 import StatCard from './components/StatCard.vue'
 import TaskTimeline from './components/TaskTimeline.vue'
 import StudyChart from './components/StudyChart.vue'
@@ -123,6 +139,44 @@ onActivated(load)
 }
 .section {
   margin-bottom: 16px;
+}
+.current-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(90deg, rgba(15,118,110,.08), rgba(15,118,110,.03));
+  border: 1px solid rgba(15,118,110,.25);
+  border-radius: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-strong, #1f2937);
+}
+.current-task:hover {
+  background: linear-gradient(90deg, rgba(15,118,110,.14), rgba(15,118,110,.06));
+}
+.ct-icon {
+  color: #0f766e;
+  font-size: 16px;
+}
+.ct-label {
+  color: #0f766e;
+  font-weight: 600;
+}
+.ct-content {
+  color: var(--text-secondary, #4b5563);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-time {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+.ct-go {
+  margin-left: auto;
+  color: #0f766e;
+  font-weight: 600;
 }
 .advice-card {
   background: var(--el-bg-color);
