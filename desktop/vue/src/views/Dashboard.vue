@@ -69,7 +69,7 @@
             <el-button class="quick-btn" @click="goUpload">
               <el-icon><Upload /></el-icon> 上传计划
             </el-button>
-            <el-button class="quick-btn" @click="quickStartFree">
+            <el-button class="quick-btn" @click="goTimer">
               <el-icon><Timer /></el-icon> 开始计时
             </el-button>
             <el-button class="quick-btn" @click="goStats">
@@ -100,6 +100,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { Upload, Timer, DataLine, Setting } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPlanStats, type PlanStats } from '@/api/plan'
 import { listTasks, type TaskItem } from '@/api/task'
 import { useTimerStore } from '@/stores/timer'
@@ -145,15 +146,21 @@ async function loadAll() {
   }
 }
 
-// 行内「开始计时」→ 开启 task 模式计时（绑定计划时间段）+ 跳转（store 已处理 session）
+// 行内「开始计时」→ 开启 task 模式计时（绑定计划时间段）+ 跳转。
+// 如果已有 running session：弹窗确认是否结束旧任务，避免默默破坏用户进行中的学习。
 async function startTask(t: TaskItem) {
-  try { await timer.startTask(t) } catch { /* store 已提示 */ }
-  router.push('/timer')
-}
-
-// 顶部快捷「开始计时」→ 一键开始自由计时（不绑任务）+ 跳转
-async function quickStartFree() {
-  try { await timer.startFree() } catch { /* store 已提示 */ }
+  if (timer.running) {
+    try {
+      await ElMessageBox.confirm(
+        `当前正在计时「${timer.session?.task?.content || timer.session?.note || '自由计时'}」，结束并开始新任务？`,
+        '替换当前计时',
+        { type: 'warning', confirmButtonText: '结束并开始', cancelButtonText: '取消' },
+      )
+    } catch {
+      return  // 用户取消
+    }
+  }
+  try { await timer.startTask(t) } catch { ElMessage.error('开始计时失败'); return }
   router.push('/timer')
 }
 

@@ -152,8 +152,42 @@ def today_stat(user) -> dict:
             'status': status,
         })
 
-    # 当前任务：今日最早未完成（pending/doing）的任务
-    current_task = next((t for t in task_list if t['status'] in ('pending', 'doing')), None)
+    # 当前任务：按时间动态选取（而不是固定"今日最早未完成"）
+    # 优先级：doing（正在做）→ 落在计划时间段内（pending）→ 下一个即将开始（pending）→ 兜底最早未完成
+    now_local = datetime.now()
+    now_t = now_local.time()
+    current_task = None
+
+    # 1) 正在做（running session 关联的任务，最高优先级）
+    for t in task_list:
+        if t['status'] == 'doing':
+            current_task = t
+            break
+
+    # 2) 当前时间落在某任务的计划时间段内（pending）
+    if current_task is None:
+        for t in task_list:
+            if t['status'] != 'pending' or not t['start_time'] or not t['end_time']:
+                continue
+            st = datetime.strptime(t['start_time'], '%H:%M').time()
+            et = datetime.strptime(t['end_time'], '%H:%M').time()
+            if st <= now_t <= et:
+                current_task = t
+                break
+
+    # 3) 下一个即将开始的 pending 任务（start_time > now）
+    if current_task is None:
+        upcoming = [
+            t for t in task_list
+            if t['status'] == 'pending' and t['start_time']
+            and datetime.strptime(t['start_time'], '%H:%M').time() > now_t
+        ]
+        if upcoming:
+            current_task = min(upcoming, key=lambda t: t['start_time'])
+
+    # 4) 兜底：今日最早未完成（pending/doing）
+    if current_task is None:
+        current_task = next((t for t in task_list if t['status'] in ('pending', 'doing')), None)
 
     return {
         'date': today_iso,
