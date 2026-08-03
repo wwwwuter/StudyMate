@@ -256,6 +256,7 @@ def _sync_session_to_record(session: TimerSession):
 
     仅在有有效时长时写入，避免重复（仅由下面两个会触发状态变更的入口调用）。
     record_type 严格按 TimerSession.mode 映射；番茄钟只统计专注段。
+    extra_duration = 计划时间段结束后的额外学习时长（超时继续），单独统计不计入计划内。
     """
     if session.status != TimerSession.STATUS_DONE:
         return
@@ -275,6 +276,9 @@ def _sync_session_to_record(session: TimerSession):
         t = StudyTask.query.get(session.task_id)
         if t:
             subject = t.subject
+    extra = 0
+    if session.plan_end_time and session.ended_at and session.ended_at > session.plan_end_time:
+        extra = int((session.ended_at - session.plan_end_time).total_seconds())
     db.session.add(StudyRecord(
         user_id=session.user_id,
         task_id=session.task_id,
@@ -283,6 +287,7 @@ def _sync_session_to_record(session: TimerSession):
         duration=duration,
         record_type=record_type,
         subject=subject,
+        extra_duration=extra,
         note=session.note,
     ))
 
@@ -299,6 +304,15 @@ def _close_running(user_id):
         _sync_session_to_record(running)
         db.session.commit()
     return running
+
+
+def _combine_utc(d, t):
+    """本地时间（StudyTask.date + start/end_time，按中国时区 UTC+8）转 UTC naive datetime。
+
+    供 task 模式填充 TimerSession.plan_start_time/plan_end_time，
+    前端拿到带 Z 的 UTC ISO 后由 Date 解析回本地显示，与计划时间一致。
+    """
+    return datetime.combine(d, t) - timedelta(hours=8)
 
 
 @plan_bp.route('/timer/start', methods=['POST'])
@@ -340,6 +354,12 @@ def timer_start(current_user):
         status=TimerSession.STATUS_RUNNING,
         note=note or None,
     )
+    # task 模式：从 StudyTask 计算计划时间段（本地 → UTC），供前端「计划倒计时」显示
+    if mode == TimerSession.MODE_TASK and task_id:
+        t = StudyTask.query.get(task_id)
+        if t and t.start_time and t.end_time:
+            session.plan_start_time = _combine_utc(t.date, t.start_time)
+            session.plan_end_time = _combine_utc(t.date, t.end_time)
     db.session.add(session)
     db.session.commit()
     return jsonify({'code': 200, 'message': '计时开始', 'data': _session_dict(session)})

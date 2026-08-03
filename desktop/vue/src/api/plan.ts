@@ -57,6 +57,8 @@ export interface TimerSessionItem {
   mode: 'pomodoro' | 'task' | 'countup' | 'countdown'
   started_at: string
   ended_at: string | null
+  plan_start_time?: string | null
+  plan_end_time?: string | null
   duration_seconds: number | null
   status: 'running' | 'done' | 'cancelled'
   note: string | null

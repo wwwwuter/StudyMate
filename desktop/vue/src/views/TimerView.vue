@@ -20,7 +20,7 @@
           倒计时剩余
         </template>
         <template v-else-if="current.task">
-          {{ current.task.content }}
+          {{ runSubText }}
         </template>
         <template v-else>已计时</template>
       </div>
@@ -93,7 +93,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { startTimer, stopTimer, getTimerCurrent, reportPomodoroCycle, type TimerSessionItem } from '@/api/plan'
 import { listTasks, type TaskItem } from '@/api/task'
 
@@ -119,6 +119,9 @@ const countdownTaskId = ref<number | null>(null)
 const countdownActive = ref(false)
 const countdownLeft = ref(0)
 
+// 计划计时超时确认（task 模式，仅提示一次）
+const taskOverNotified = ref(false)
+
 let timer: number | undefined
 
 function fmt(s: number): string {
@@ -140,9 +143,54 @@ const elapsedSec = computed(() => {
   return Math.floor((now.value - startedAt) / 1000)
 })
 
+// ---- 计划计时（task 模式）：按计划时间段倒计时 ----
+const planEndMs = computed(() => {
+  if (!current.value?.plan_end_time) return NaN
+  const ms = new Date(current.value.plan_end_time).getTime()
+  return Number.isNaN(ms) ? NaN : ms
+})
+const taskLeft = computed(() => {
+  if (mode.value !== 'task' || Number.isNaN(planEndMs.value)) return 0
+  return Math.max(0, Math.floor((planEndMs.value - now.value) / 1000))
+})
+const taskOver = computed(() => {
+  if (mode.value !== 'task' || Number.isNaN(planEndMs.value)) return false
+  return now.value > planEndMs.value
+})
+const taskEarlyMin = computed(() => {
+  // 提前开始分钟数：实际开始 < 计划开始
+  if (mode.value !== 'task' || !current.value?.plan_start_time || !current.value.started_at) return 0
+  const planStart = new Date(current.value.plan_start_time).getTime()
+  const actual = new Date(current.value.started_at).getTime()
+  if (Number.isNaN(planStart) || Number.isNaN(actual)) return 0
+  return Math.max(0, Math.round((planStart - actual) / 60000))
+})
+
+function fmtClock(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+const runSubText = computed(() => {
+  if (mode.value === 'task' && current.value) {
+    const task = current.value.task
+    const span =
+      current.value.plan_start_time && current.value.plan_end_time
+        ? `${fmtClock(current.value.plan_start_time)}-${fmtClock(current.value.plan_end_time)}`
+        : ''
+    const early = taskEarlyMin.value > 0 ? `· 提前 ${taskEarlyMin.value} 分钟开始` : ''
+    const state = taskOver.value ? '· 已超计划' : `· 剩余 ${fmt(taskLeft.value)}`
+    return `${task?.content || ''} ${span} ${state} ${early}`.trim()
+  }
+  return ''
+})
+
 const clockText = computed(() => {
   if (mode.value === 'pomodoro' && pomodoroActive.value) return fmt(pomoLeft.value)
   if (mode.value === 'countdown' && countdownActive.value) return fmt(countdownLeft.value)
+  // 计划计时：显示计划时间段剩余（倒计时）；无计划结束时间的旧任务回退正计时
+  if (mode.value === 'task' && !Number.isNaN(planEndMs.value)) return fmt(taskLeft.value)
   if (current.value) return fmt(elapsedSec.value)
   return '00:00'
 })
@@ -178,6 +226,7 @@ async function startTask(t: TaskItem) {
     mode.value = 'task'
     pomodoroActive.value = false
     countdownActive.value = false
+    taskOverNotified.value = false
   } catch (e: any) {
     ElMessage.error(e?.message || '开始计时失败')
   }
@@ -254,6 +303,7 @@ async function stop(silent = false) {
   current.value = null
   pomodoroActive.value = false
   countdownActive.value = false
+  taskOverNotified.value = false
   mode.value = 'task'
   await loadTasks()
 }
@@ -280,6 +330,20 @@ function tick() {
       // 倒计时归零：自动结束并保存
       stop(true)
     }
+  } else if (mode.value === 'task' && current.value && taskOver.value && !taskOverNotified.value) {
+    // 计划时间段结束：提示，不自动停止（继续则记录额外学习时长）
+    taskOverNotified.value = true
+    ElMessageBox.confirm(
+      '计划时间已结束，是否继续学习？（继续将记录为额外学习时间）',
+      '计划结束',
+      { type: 'warning', confirmButtonText: '继续学习', cancelButtonText: '结束并保存' },
+    )
+      .then(() => {
+        /* 继续：保持计时，超时部分由后端记为 extra_duration */
+      })
+      .catch(() => {
+        stop(false)
+      })
   }
 }
 
