@@ -34,6 +34,7 @@ export interface ModeItem {
 export interface TodayStat {
   date: string
   study_time: number
+  extra_time: number
   task_total: number
   task_completed: number
   completion_rate: number
@@ -65,6 +66,8 @@ export interface PlanStatItem {
 /** 全部统计。 */
 export interface AllStat {
   total_time: number
+  actual_total: number
+  extra_total: number
   total_sessions: number
   completed_tasks: number
   completion_rate: number

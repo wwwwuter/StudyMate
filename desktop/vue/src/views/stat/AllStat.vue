@@ -2,7 +2,13 @@
   <div class="stat-page">
     <el-row :gutter="16" class="section">
       <el-col :xs="12" :sm="6">
-        <StatCard label="累计学习时间" :value="fmtDuration(data?.total_time ?? 0)" />
+        <StatCard label="计划完成学习" :value="fmtDuration(data?.total_time ?? 0)" />
+      </el-col>
+      <el-col :xs="12" :sm="6">
+        <StatCard label="实际投入" :value="fmtDuration(data?.actual_total ?? 0)" hint="真实计时" />
+      </el-col>
+      <el-col :xs="12" :sm="6">
+        <StatCard label="额外投入" :value="`+${fmtDuration(data?.extra_total ?? 0)}`" hint="超计划部分" />
       </el-col>
       <el-col :xs="12" :sm="6">
         <StatCard label="累计计时次数" :value="`${data?.total_sessions ?? 0} 次`" />

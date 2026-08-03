@@ -1,13 +1,20 @@
 <template>
   <div class="stat-page">
     <el-row :gutter="16" class="section">
-      <el-col :xs="24" :sm="8">
-        <StatCard label="今日学习时长" :value="fmtDuration(data?.study_time ?? 0)" />
+      <el-col :xs="12" :sm="6">
+        <StatCard
+          label="计划有效学习"
+          :value="fmtDuration(data?.study_time ?? 0)"
+          :hint="`实际投入 ${fmtDuration((data?.study_time ?? 0) + (data?.extra_time ?? 0))}`"
+        />
       </el-col>
-      <el-col :xs="24" :sm="8">
+      <el-col :xs="12" :sm="6">
+        <StatCard label="额外学习" :value="fmtDuration(data?.extra_time ?? 0)" hint="超计划部分" />
+      </el-col>
+      <el-col :xs="12" :sm="6">
         <StatCard label="今日任务完成" :value="`${data?.task_completed ?? 0} / ${data?.task_total ?? 0}`" />
       </el-col>
-      <el-col :xs="24" :sm="8">
+      <el-col :xs="12" :sm="6">
         <StatCard label="今日完成率" :value="`${data?.completion_rate ?? 0}%`" />
       </el-col>
     </el-row>

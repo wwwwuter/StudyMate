@@ -187,9 +187,13 @@ const runSubText = computed(() => {
         ? `${fmtClock(current.value.plan_start_time)}-${fmtClock(current.value.plan_end_time)}`
         : ''
     const early = taskEarlyMin.value > 0 ? `· 提前 ${taskEarlyMin.value} 分钟开始` : ''
-    const state = taskOver.value
-      ? `· 已超计划 · 额外学习 ${fmt(extraSec.value)}`
-      : `· 剩余 ${fmt(taskLeft.value)}`
+    let state = ''
+    if (taskOver.value) {
+      const over = Number.isNaN(planEndMs.value) ? 0 : Math.max(0, Math.floor((now.value - planEndMs.value) / 1000))
+      state = `· 计划结束 · 已超出 ${fmt(over)} · 额外学习 ${fmt(extraSec.value)}`
+    } else {
+      state = `· 剩余 ${fmt(taskLeft.value)}`
+    }
     return `${task?.content || ''} ${span} ${state} ${early}`.trim()
   }
   return ''
