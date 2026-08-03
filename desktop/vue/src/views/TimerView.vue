@@ -121,6 +121,8 @@ const countdownLeft = ref(0)
 
 // 计划计时超时确认（task 模式，仅提示一次）
 const taskOverNotified = ref(false)
+// 额外学习起点：点击「继续学习」时设为 Date.now()，额外时长从此时起算（从 0 开始）
+const extraStartAt = ref<number | null>(null)
 
 let timer: number | undefined
 
@@ -158,9 +160,9 @@ const taskOver = computed(() => {
   return now.value > planEndMs.value
 })
 const extraSec = computed(() => {
-  // 超时后额外学习时长 = 当前时间 - 计划结束时间（与早/晚开始无关，正好是「超时后继续学了多少」）
-  if (Number.isNaN(planEndMs.value) || !taskOver.value) return 0
-  return Math.max(0, Math.floor((now.value - planEndMs.value) / 1000))
+  // 额外学习时长：从点击「继续学习」那一刻起算（从 0 累加）；未点则为 0
+  if (!extraStartAt.value) return 0
+  return Math.max(0, Math.floor((now.value - extraStartAt.value) / 1000))
 })
 const taskEarlyMin = computed(() => {
   // 提前开始分钟数：实际开始 < 计划开始
@@ -236,6 +238,7 @@ async function startTask(t: TaskItem) {
     pomodoroActive.value = false
     countdownActive.value = false
     taskOverNotified.value = false
+    extraStartAt.value = null
   } catch (e: any) {
     ElMessage.error(e?.message || '开始计时失败')
   }
@@ -313,6 +316,7 @@ async function stop(silent = false) {
   pomodoroActive.value = false
   countdownActive.value = false
   taskOverNotified.value = false
+  extraStartAt.value = null
   mode.value = 'task'
   await loadTasks()
 }
@@ -348,7 +352,8 @@ function tick() {
       { type: 'warning', confirmButtonText: '继续学习', cancelButtonText: '结束并保存' },
     )
       .then(() => {
-        /* 继续：保持计时，超时部分由后端记为 extra_duration */
+        // 点「继续学习」：额外学习从此时起算（从 0 开始累加）
+        extraStartAt.value = Date.now()
       })
       .catch(() => {
         stop(false)
