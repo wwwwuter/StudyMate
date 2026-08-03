@@ -3,20 +3,20 @@
     <!-- 进行中 -->
     <el-card v-if="current" shadow="never" class="run-card">
       <div class="run-label">
-        <el-tag v-if="mode === 'pomodoro' && pomodoroActive" :type="pomoPhase === 'work' ? 'danger' : 'success'" size="small">
+        <el-tag v-if="mode === 'pomodoro'" :type="pomoPhase === 'work' ? 'danger' : 'success'" size="small">
           {{ pomoPhase === 'work' ? '🍅 专注中' : '☕ 休息中' }}
         </el-tag>
-        <el-tag v-else-if="mode === 'countdown' && countdownActive" type="warning" size="small">⏳ 倒计时</el-tag>
+        <el-tag v-else-if="mode === 'countdown'" type="warning" size="small">⏳ 倒计时</el-tag>
         <el-tag v-else-if="current.task" type="primary" size="small">{{ current.task.subject }}</el-tag>
         <el-tag v-else type="info" size="small">自由计时</el-tag>
         <span v-if="current.note" class="run-note">· {{ current.note }}</span>
       </div>
       <div class="run-clock">{{ clockText }}</div>
       <div class="run-sub">
-        <template v-if="mode === 'pomodoro' && pomodoroActive">
+        <template v-if="mode === 'pomodoro'">
           {{ pomoPhase === 'work' ? '专注剩余' : '休息剩余' }}
         </template>
-        <template v-else-if="mode === 'countdown' && countdownActive">
+        <template v-else-if="mode === 'countdown'">
           倒计时剩余
         </template>
         <template v-else-if="current.task">
@@ -25,13 +25,13 @@
         <template v-else>已计时</template>
       </div>
       <div class="run-actions">
-        <el-button type="warning" size="large" @click="stop">结束并保存</el-button>
+        <el-button type="warning" size="large" @click="timer.stop()">结束并保存</el-button>
       </div>
     </el-card>
 
     <!-- 未开始：选择模式 -->
     <el-card v-else shadow="never" class="start-card">
-      <el-tabs v-model="mode" class="modes">
+      <el-tabs v-model="tabMode" class="modes">
         <!-- 计划计时 -->
         <el-tab-pane label="计划计时" name="task">
           <p class="mode-hint">选择今日一个计划，到点自动或手动开始计时。</p>
@@ -91,124 +91,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { startTimer, stopTimer, getTimerCurrent, reportPomodoroCycle, type TimerSessionItem } from '@/api/plan'
+import { storeToRefs } from 'pinia'
+import { useTimerStore } from '@/stores/timer'
 import { listTasks, type TaskItem } from '@/api/task'
 
 const route = useRoute()
-type Mode = 'task' | 'pomodoro' | 'countdown' | 'free'
-const mode = ref<Mode>('task')
-const current = ref<TimerSessionItem | null>(null)
+const timer = useTimerStore()
+const { session: current, mode, pomoPhase, clockText, runSubText } = storeToRefs(timer)
+
 const planTasks = ref<TaskItem[]>([])
 const freeNote = ref('')
-const now = ref(Date.now())
+// 未运行时选择的模式 Tab（本地 UI 状态，与 store.mode 无关）
+const tabMode = ref<'task' | 'pomodoro' | 'countdown' | 'free'>('task')
 
-// 番茄钟本地状态
+// 番茄钟参数（本地配置）
 const workMin = ref(25)
 const breakMin = ref(5)
-const pomodoroActive = ref(false)
-const pomoPhase = ref<'work' | 'break'>('work')
-const pomoLeft = ref(0)
-const pomoCycle = ref(1)
 
-// 倒计时本地状态
+// 倒计时参数（本地配置）
 const countdownMin = ref(25)
 const countdownTaskId = ref<number | null>(null)
-const countdownActive = ref(false)
-const countdownLeft = ref(0)
 
-// 计划计时超时确认（task 模式，仅提示一次）
-const taskOverNotified = ref(false)
-// 额外学习起点：点击「继续学习」时设为 Date.now()，额外时长从此时起算（从 0 开始）
-const extraStartAt = ref<number | null>(null)
-
-let timer: number | undefined
-
-function fmt(s: number): string {
-  s = Math.max(0, Math.floor(s))
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  const mm = String(m).padStart(2, '0')
-  const ss = String(sec).padStart(2, '0')
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-}
-
-const elapsedSec = computed(() => {
-  if (!current.value || !current.value.started_at) return 0
-  // 后端返回 UTC ISO-8601（如 2026-08-02T12:40:01Z），直接交给 Date 解析；
-  // 若解析失败（NaN）则兜底为 0，避免界面出现 NaN:NaN。
-  const startedAt = new Date(current.value.started_at).getTime()
-  if (Number.isNaN(startedAt)) return 0
-  return Math.floor((now.value - startedAt) / 1000)
-})
-
-// ---- 计划计时（task 模式）：按计划时间段倒计时 + 超时额外学习 ----
-const planEndMs = computed(() => {
-  if (!current.value?.plan_end_time) return NaN
-  const ms = new Date(current.value.plan_end_time).getTime()
-  return Number.isNaN(ms) ? NaN : ms
-})
-const taskLeft = computed(() => {
-  if (mode.value !== 'task' || Number.isNaN(planEndMs.value)) return 0
-  return Math.max(0, Math.floor((planEndMs.value - now.value) / 1000))
-})
-const taskOver = computed(() => {
-  if (mode.value !== 'task' || Number.isNaN(planEndMs.value)) return false
-  return now.value > planEndMs.value
-})
-const extraSec = computed(() => {
-  // 额外学习时长：从点击「继续学习」那一刻起算（从 0 累加）；未点则为 0
-  if (!extraStartAt.value) return 0
-  return Math.max(0, Math.floor((now.value - extraStartAt.value) / 1000))
-})
-const taskEarlyMin = computed(() => {
-  // 提前开始分钟数：实际开始 < 计划开始
-  if (mode.value !== 'task' || !current.value?.plan_start_time || !current.value.started_at) return 0
-  const planStart = new Date(current.value.plan_start_time).getTime()
-  const actual = new Date(current.value.started_at).getTime()
-  if (Number.isNaN(planStart) || Number.isNaN(actual)) return 0
-  return Math.max(0, Math.round((planStart - actual) / 60000))
-})
-
-function fmtClock(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
-}
-
-const runSubText = computed(() => {
-  if (mode.value === 'task' && current.value) {
-    const task = current.value.task
-    const span =
-      current.value.plan_start_time && current.value.plan_end_time
-        ? `${fmtClock(current.value.plan_start_time)}-${fmtClock(current.value.plan_end_time)}`
-        : ''
-    const early = taskEarlyMin.value > 0 ? `· 提前 ${taskEarlyMin.value} 分钟开始` : ''
-    let state = ''
-    if (taskOver.value) {
-      const over = Number.isNaN(planEndMs.value) ? 0 : Math.max(0, Math.floor((now.value - planEndMs.value) / 1000))
-      state = `· 计划结束 · 已超出 ${fmt(over)} · 额外学习 ${fmt(extraSec.value)}`
-    } else {
-      state = `· 剩余 ${fmt(taskLeft.value)}`
-    }
-    return `${task?.content || ''} ${span} ${state} ${early}`.trim()
-  }
-  return ''
-})
-
-const clockText = computed(() => {
-  if (mode.value === 'pomodoro' && pomodoroActive.value) return fmt(pomoLeft.value)
-  if (mode.value === 'countdown' && countdownActive.value) return fmt(countdownLeft.value)
-  // 计划计时：未超时显示计划时间段剩余（倒计时），超时显示额外学习时长（从 0 累加）
-  if (mode.value === 'task' && !Number.isNaN(planEndMs.value)) {
-    return taskOver.value ? fmt(extraSec.value) : fmt(taskLeft.value)
-  }
-  if (current.value) return fmt(elapsedSec.value)
-  return '00:00'
-})
+let tickTimer: number | undefined
 
 const todayStr = () => {
   const d = new Date()
@@ -224,159 +130,36 @@ async function loadTasks() {
   }
 }
 
-async function refresh() {
-  try {
-    const c = await getTimerCurrent()
-    current.value = c.data || null
-  } catch {
-    current.value = null
-  }
-  await loadTasks()
-}
-
 async function startTask(t: TaskItem) {
-  try {
-    const res = await startTimer({ mode: 'task', task_id: t.id })
-    current.value = res.data
-    mode.value = 'task'
-    pomodoroActive.value = false
-    countdownActive.value = false
-    taskOverNotified.value = false
-    extraStartAt.value = null
-  } catch (e: any) {
-    ElMessage.error(e?.message || '开始计时失败')
-  }
+  try { await timer.startTask(t) } catch { /* store 已提示 */ }
 }
 
 async function startPomodoro() {
-  try {
-    const res = await startTimer({ mode: 'pomodoro', duration: workMin.value * 60 })
-    current.value = res.data
-    mode.value = 'pomodoro'
-    pomodoroActive.value = true
-    pomoPhase.value = 'work'
-    pomoLeft.value = workMin.value * 60
-    pomoCycle.value = 1
-    countdownActive.value = false
-  } catch (e: any) {
-    ElMessage.error(e?.message || '开始失败')
-  }
+  try { await timer.startPomodoro(workMin.value, breakMin.value) } catch { /* store 已提示 */ }
 }
 
 async function startCountdown() {
   const minutes = Math.max(1, Math.floor(countdownMin.value || 1))
-  try {
-    const payload: { mode: 'countdown'; duration: number; task_id?: number } = {
-      mode: 'countdown',
-      duration: minutes * 60,
-    }
-    if (countdownTaskId.value) payload.task_id = countdownTaskId.value
-    const res = await startTimer(payload)
-    current.value = res.data
-    mode.value = 'countdown'
-    countdownActive.value = true
-    countdownLeft.value = minutes * 60
-    pomodoroActive.value = false
-  } catch (e: any) {
-    ElMessage.error(e?.message || '开始失败')
-  }
+  try { await timer.startCountdown(minutes, countdownTaskId.value) } catch { /* store 已提示 */ }
 }
 
 async function startFree() {
-  try {
-    const res = await startTimer({ mode: 'countup', note: freeNote.value.trim() || undefined })
-    current.value = res.data
-    mode.value = 'free'
-    pomodoroActive.value = false
-    countdownActive.value = false
-  } catch (e: any) {
-    ElMessage.error(e?.message || '开始失败')
-  }
-}
-
-/** 专注段结束上报一轮（番茄钟：只统计专注时长，休息不计入学习时长）。 */
-async function reportCycle() {
-  if (!current.value) return
-  try {
-    await reportPomodoroCycle({
-      session_id: current.value.id,
-      cycle_number: pomoCycle.value,
-      focus_duration: workMin.value * 60,
-      break_duration: breakMin.value * 60,
-    })
-    pomoCycle.value += 1
-  } catch {
-    // 上报失败不阻断番茄钟流程；最终统计会回退到整段时长
-  }
-}
-
-async function stop(silent = false) {
-  try {
-    await stopTimer({})
-  } catch (e: any) {
-    if (!silent) ElMessage.error(e?.message || '结束失败')
-  }
-  current.value = null
-  pomodoroActive.value = false
-  countdownActive.value = false
-  taskOverNotified.value = false
-  extraStartAt.value = null
-  mode.value = 'task'
-  await loadTasks()
-}
-
-function tick() {
-  now.value = Date.now()
-  if (pomodoroActive.value && current.value) {
-    pomoLeft.value--
-    if (pomoLeft.value <= 0) {
-      if (pomoPhase.value === 'work') {
-        // 专注结束：先上报本轮（聚焦时长），再进入休息
-        reportCycle().finally(() => {
-          pomoPhase.value = 'break'
-          pomoLeft.value = breakMin.value * 60
-        })
-      } else {
-        // 休息结束：完成一个番茄周期，自动保存
-        stop(true)
-      }
-    }
-  } else if (countdownActive.value && current.value) {
-    countdownLeft.value--
-    if (countdownLeft.value <= 0) {
-      // 倒计时归零：自动结束并保存
-      stop(true)
-    }
-  } else if (mode.value === 'task' && current.value && taskOver.value && !taskOverNotified.value) {
-    // 计划时间段结束：提示，不自动停止（继续则记录额外学习时长）
-    taskOverNotified.value = true
-    ElMessageBox.confirm(
-      '计划时间已结束，是否继续学习？（继续将记录为额外学习时间）',
-      '计划结束',
-      { type: 'warning', confirmButtonText: '继续学习', cancelButtonText: '结束并保存' },
-    )
-      .then(() => {
-        // 点「继续学习」：额外学习从此时起算（从 0 开始累加）
-        extraStartAt.value = Date.now()
-      })
-      .catch(() => {
-        stop(false)
-      })
-  }
+  try { await timer.startFree(freeNote.value.trim() || undefined) } catch { /* store 已提示 */ }
 }
 
 onMounted(async () => {
-  await refresh()
+  await loadTasks()
   // 从「今日计划」带 taskId 进入且当前无计时：直接开始
   const qTask = route.query.taskId
   if (qTask && !current.value) {
     const id = Number(qTask)
     const t = planTasks.value.find((x) => x.id === id)
-    if (t) await startTask(t)
+    if (t) await timer.startTask(t)
   }
-  timer = window.setInterval(tick, 1000)
+  // 全局 tick：推进 store 时钟（番茄/倒计时归零、计划超时提示均在此处理）
+  tickTimer = window.setInterval(() => timer.tick(), 1000)
 })
-onBeforeUnmount(() => { if (timer) clearInterval(timer) })
+onBeforeUnmount(() => { if (tickTimer) clearInterval(tickTimer) })
 </script>
 
 <style scoped>

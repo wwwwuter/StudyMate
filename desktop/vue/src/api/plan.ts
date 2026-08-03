@@ -59,6 +59,9 @@ export interface TimerSessionItem {
   ended_at: string | null
   plan_start_time?: string | null
   plan_end_time?: string | null
+  pomodoro_phase?: 'work' | 'break' | null
+  phase_started_at?: string | null
+  target_seconds?: number | null
   duration_seconds: number | null
   status: 'running' | 'done' | 'cancelled'
   note: string | null
@@ -105,6 +108,12 @@ export const getTimerCurrent = () =>
   request
     .get('/plans/timer/current')
     .then((r) => r.data as { code: number; data: TimerSessionItem | null })
+
+/** 同步番茄钟当前阶段（work/break）到后端，供刷新后重建剩余时间。 */
+export const syncPomodoroPhase = (payload: { phase: 'work' | 'break'; target_seconds?: number }) =>
+  request
+    .post('/plans/timer/phase', payload)
+    .then((r) => r.data as { code: number; message?: string; data: TimerSessionItem })
 
 /** 学习统计（按范围聚合计时时长 / 次数 / 科目占比 / 每日趋势 + 任务完成率）。 */
 export interface PlanStats {
