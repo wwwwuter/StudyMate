@@ -191,39 +191,25 @@ def _normalize_plan(p: dict) -> dict:
 @plan_bp.route('/confirm', methods=['POST'])
 @login_required
 def confirm_plan(current_user):
-    """将复核后的计划列表落库为 study_tasks（按时间排期）。"""
-    items = request.get_json(silent=True)
+    """将复核后的计划确认落库（生成 StudyPlan 版本，冲突任务跳过并返回提示）。
+
+    body: {plan_name?, tasks:[{date,subject,content,start_time,end_time,priority}]}
+    兼容旧格式：直接传任务数组。
+    返回 {plan_id, plan_name, version, created, skipped:[冲突任务]}
+    """
+    data = request.get_json(silent=True)
+    if isinstance(data, dict):
+        plan_name = data.get('plan_name')
+        items = data.get('tasks')
+    else:
+        plan_name = None
+        items = data
     if not isinstance(items, list) or not items:
-        return jsonify({'code': 400, 'message': 'body 应为计划数组'}), 400
-
-    today = date.today()
-    built = []
-    for it in items:
-        if not isinstance(it, dict):
-            continue
-        d = _parse_date(it.get('date')) or today
-        subject = normalize_subject(it.get('subject')) or '其他'
-        content = (it.get('content') or '').strip()
-        if not content:
-            continue
-        built.append({
-            'date': d.strftime('%Y-%m-%d'),
-            'subject': subject,
-            'content': content,
-            'start_time': it.get('start_time'),
-            'end_time': it.get('end_time'),
-            'status': StudyTask.STATUS_PENDING,
-            'plan_source': StudyTask.SOURCE_PARSED,
-        })
-
-    if not built:
-        return jsonify({'code': 400, 'message': '没有可保存的有效计划'}), 400
+        return jsonify({'code': 400, 'message': 'body 应为 {plan_name?, tasks:[...]}'}), 400
 
     try:
-        from services.plan_service import bulk_create
-        tasks = bulk_create(current_user.id, built)
-    except ValueError as e:
-        return jsonify({'code': 400, 'message': str(e)}), 400
+        from services.plan_manager import confirm_plan_version
+        result = confirm_plan_version(current_user.id, plan_name or '', items, source='parsed')
     except Exception as e:
         return jsonify({'code': 500, 'message': f'保存失败: {e}'}), 500
 
@@ -233,11 +219,10 @@ def confirm_plan(current_user):
     except Exception:
         pass
 
-    return jsonify({
-        'code': 200,
-        'message': f'已保存 {len(tasks)} 条计划',
-        'data': {'count': len(tasks), 'tasks': [t.to_dict() for t in tasks]},
-    })
+    message = f'已保存 {result["created"]} 条计划'
+    if result['skipped']:
+        message += f'，跳过 {len(result["skipped"])} 条时间冲突'
+    return jsonify({'code': 200, 'message': message, 'data': result})
 
 
 # ------------------------- 计时 -------------------------

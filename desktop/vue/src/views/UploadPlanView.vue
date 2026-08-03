@@ -298,6 +298,7 @@ const { ensureKey } = useAiKey()
 const step = ref<'upload' | 'review'>('upload')
 const textInput = ref('')
 const plans = ref<PlanItem[]>([])
+const planName = ref('')
 const parsing = ref(false)
 const parseProgress = ref('')
 const saving = ref(false)
@@ -317,6 +318,7 @@ async function doParse(form: FormData, isImageFile = false) {
     const res = await parsePlan(form)
     if (res.code === 200 && Array.isArray(res.data?.plans)) {
       plans.value = res.data.plans
+      planName.value = res.data.plan_name || ''
       if (!plans.value.length) {
         message.value = '未识别出计划，请检查内容或换一种格式'
         messageType.value = 'error'
@@ -381,12 +383,17 @@ async function confirm() {
   }
   saving.value = true
   try {
-    const res = await confirmPlans(valid)
+    const res = await confirmPlans({ plan_name: planName.value || undefined, tasks: valid })
     if (res.code === 200) {
-      message.value = `已保存 ${res.data.count} 条计划，去「今日计划」查看并按点提醒计时`
+      const skipped = res.data.skipped?.length || 0
+      message.value =
+        `已保存 ${res.data.created} 条计划（v${res.data.version}）` +
+        (skipped ? `，跳过 ${skipped} 条时间冲突` : '') +
+        '，去「今日计划」查看并按点提醒计时'
       messageType.value = 'success'
       step.value = 'upload'
       plans.value = []
+      planName.value = ''
       textInput.value = ''
       setTimeout(() => router.push('/tasks'), 800)
     } else {

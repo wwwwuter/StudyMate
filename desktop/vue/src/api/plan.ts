@@ -8,6 +8,7 @@ export interface PlanItem {
   start_time: string | null
   end_time: string | null
   needs_review?: boolean
+  priority?: number
 }
 
 /** 解析上传的计划（文本 / 文件），返回可编辑的计划列表（不落库）。 */
@@ -22,15 +23,31 @@ export const parsePlan = (form: FormData) =>
         r.data as {
           code: number
           message?: string
-          data: { plans: PlanItem[] }
+          data: { plans: PlanItem[]; plan_name?: string | null }
         },
     )
 
-/** 将复核后的计划列表落库为 study_tasks（自动生成提醒）。 */
-export const confirmPlans = (items: PlanItem[]) =>
+/** 确认结果：StudyPlan 版本 + 落库/冲突信息。 */
+export interface ConfirmResult {
+  plan_id: number
+  plan_name: string
+  version: number
+  created: number
+  skipped: {
+    date: string
+    subject: string
+    content: string
+    start_time?: string
+    end_time?: string
+    conflicts_with: unknown[]
+  }[]
+}
+
+/** 确认计划：生成 StudyPlan 版本并落库（冲突任务由后端跳过并返回）。 */
+export const confirmPlans = (payload: { plan_name?: string; tasks: PlanItem[] }) =>
   request
-    .post('/plans/confirm', items)
-    .then((r) => r.data as { code: number; message?: string; data: { count: number; tasks: any[] } })
+    .post('/plans/confirm', payload)
+    .then((r) => r.data as { code: number; message?: string; data: ConfirmResult })
 
 /** 运行中的计时会话（含关联计划）。 */
 export interface TimerSessionItem {
