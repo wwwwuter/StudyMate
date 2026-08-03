@@ -1,6 +1,6 @@
 {
   "name": "studymate-electron",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "StudyMate 桌面端（Electron 外壳，打包 Vue 前端 SPA + 内置 Python 后端，一键启动）",
   "main": "main.js",
   "author": "",
