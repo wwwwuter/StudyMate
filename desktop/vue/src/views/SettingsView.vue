@@ -78,7 +78,7 @@ import { useAiKey } from '@/composables/useAiKey'
 
 const { refresh } = useAiKey()
 
-const version = ref('1.4.0')
+const version = ref('1.4.1')
 const saving = ref(false)
 const keySettings = ref<KeySettings | null>(null)
 const form = ref({
