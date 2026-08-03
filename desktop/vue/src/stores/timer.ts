@@ -299,6 +299,19 @@ export const useTimerStore = defineStore('timer', () => {
     }
   }
 
+  // ---- 全局 tick 调度（由 MainLayout 启动/停止，跨页面持续推进）----
+  let _intervalId: number | undefined
+  function startTicking() {
+    if (_intervalId !== undefined) return
+    tick() // 立即推进一次，避免首屏 1s 才更新
+    _intervalId = window.setInterval(() => tick(), 1000)
+  }
+  function stopTicking() {
+    if (_intervalId === undefined) return
+    clearInterval(_intervalId)
+    _intervalId = undefined
+  }
+
   return {
     session,
     hydrated,
@@ -327,5 +340,7 @@ export const useTimerStore = defineStore('timer', () => {
     continueOvertime,
     stop,
     tick,
+    startTicking,
+    stopTicking,
   }
 })

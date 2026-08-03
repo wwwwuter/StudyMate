@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useTimerStore } from '@/stores/timer'
@@ -113,8 +113,6 @@ const breakMin = ref(5)
 // 倒计时参数（本地配置）
 const countdownMin = ref(25)
 const countdownTaskId = ref<number | null>(null)
-
-let tickTimer: number | undefined
 
 const todayStr = () => {
   const d = new Date()
@@ -156,10 +154,8 @@ onMounted(async () => {
     const t = planTasks.value.find((x) => x.id === id)
     if (t) await timer.startTask(t)
   }
-  // 全局 tick：推进 store 时钟（番茄/倒计时归零、计划超时提示均在此处理）
-  tickTimer = window.setInterval(() => timer.tick(), 1000)
+  // 全局 tick 由 MainLayout 启动（跨页面持续推进）；本页不再重复 setInterval
 })
-onBeforeUnmount(() => { if (tickTimer) clearInterval(tickTimer) })
 </script>
 
 <style scoped>

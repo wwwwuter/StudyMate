@@ -156,12 +156,15 @@ let countTimer: number | undefined
 onMounted(() => {
   reminder.refreshPending()
   countTimer = window.setInterval(() => reminder.refreshPending(), 20_000)
+  // Phase 6-4 修正：tick 由 MainLayout 驱动（永远挂载），保证跨页面计时推进
+  timer.startTicking()
 })
 onBeforeUnmount(() => {
   if (countTimer !== undefined) {
     clearInterval(countTimer)
     countTimer = undefined
   }
+  timer.stopTicking()
 })
 </script>
 
