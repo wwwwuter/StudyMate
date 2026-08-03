@@ -5,7 +5,7 @@ a = Analysis(
     ['D:\\StudyMate\\backend\\desktop_run.py'],
     pathex=['D:\\StudyMate\\backend'],
     binaries=[],
-    datas=[('D:\\StudyMate\\backend\\app', 'app'), ('D:\\StudyMate\\backend\\models', 'models'), ('D:\\StudyMate\\backend\\routes', 'routes'), ('D:\\StudyMate\\backend\\services', 'services'), ('D:\\StudyMate\\backend\\ai', 'ai'), ('D:\\StudyMate\\backend\\utils', 'utils'), ('D:\\StudyMate\\backend\\parser', 'parser')],
+    datas=[('D:\\StudyMate\\backend\\app', 'app'), ('D:\\StudyMate\\backend\\models', 'models'), ('D:\\StudyMate\\backend\\routes', 'routes'), ('D:\\StudyMate\\backend\\services', 'services'), ('D:\\StudyMate\\backend\\ai', 'ai'), ('D:\\StudyMate\\backend\\utils', 'utils'), ('D:\\StudyMate\\backend\\parser', 'parser'), ('D:\\StudyMate\\backend\\prompts', 'prompts')],
     hiddenimports=['models', 'flask', 'flask_cors', 'flask_sqlalchemy', 'flask_migrate', 'waitress', 'werkzeug', 'jinja2', 'sqlalchemy', 'alembic', 'pymysql', 'apscheduler', 'apscheduler.schedulers.background', 'apscheduler.jobstores.sqlalchemy', 'apscheduler.triggers.cron', 'openai', 'pypdf', 'pdfminer', 'pdfminer.high_level', 'docx', 'lxml', 'pydantic', 'dotenv', 'requests', 'httpx', 'aiohttp', 'tzlocal', 'pytz', 'cryptography'],
     hookspath=[],
     hooksconfig={},
