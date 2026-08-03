@@ -144,11 +144,6 @@ const elapsedSec = computed(() => {
 })
 
 // ---- 计划计时（task 模式）：按计划时间段倒计时 + 超时额外学习 ----
-const planStartMs = computed(() => {
-  if (!current.value?.plan_start_time) return NaN
-  const ms = new Date(current.value.plan_start_time).getTime()
-  return Number.isNaN(ms) ? NaN : ms
-})
 const planEndMs = computed(() => {
   if (!current.value?.plan_end_time) return NaN
   const ms = new Date(current.value.plan_end_time).getTime()
@@ -162,12 +157,11 @@ const taskOver = computed(() => {
   if (mode.value !== 'task' || Number.isNaN(planEndMs.value)) return false
   return now.value > planEndMs.value
 })
-const planDurationSec = computed(() => {
-  // 计划内时长（秒）；有 plan 字段才计算
-  if (Number.isNaN(planStartMs.value) || Number.isNaN(planEndMs.value)) return 0
-  return Math.max(0, Math.floor((planEndMs.value - planStartMs.value) / 1000))
+const extraSec = computed(() => {
+  // 超时后额外学习时长 = 当前时间 - 计划结束时间（与早/晚开始无关，正好是「超时后继续学了多少」）
+  if (Number.isNaN(planEndMs.value) || !taskOver.value) return 0
+  return Math.max(0, Math.floor((now.value - planEndMs.value) / 1000))
 })
-const extraSec = computed(() => Math.max(0, elapsedSec.value - planDurationSec.value))
 const taskEarlyMin = computed(() => {
   // 提前开始分钟数：实际开始 < 计划开始
   if (mode.value !== 'task' || !current.value?.plan_start_time || !current.value.started_at) return 0
