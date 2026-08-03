@@ -69,7 +69,7 @@
             <el-button class="quick-btn" @click="goUpload">
               <el-icon><Upload /></el-icon> 上传计划
             </el-button>
-            <el-button class="quick-btn" @click="goTimer">
+            <el-button class="quick-btn" @click="quickStartFree">
               <el-icon><Timer /></el-icon> 开始计时
             </el-button>
             <el-button class="quick-btn" @click="goStats">
@@ -96,24 +96,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { Upload, Timer, DataLine, Setting } from '@element-plus/icons-vue'
-import { getTimerCurrent, getPlanStats, startTimer, type TimerSessionItem, type PlanStats } from '@/api/plan'
+import { getPlanStats, type PlanStats } from '@/api/plan'
 import { listTasks, type TaskItem } from '@/api/task'
+import { useTimerStore } from '@/stores/timer'
 
 const router = useRouter()
-const current = ref<TimerSessionItem | null>(null)
+const timer = useTimerStore()
+const { session: current } = storeToRefs(timer)
 const stats = ref<PlanStats | null>(null)
 const tasks = ref<TaskItem[]>([])
-const now = ref(Date.now())
-let tick: number | undefined
 
-const liveElapsed = computed(() => {
-  if (!current.value) return '00:00:00'
-  const start = new Date(current.value.started_at).getTime()
-  return fmt(Math.floor((now.value - start) / 1000))
-})
+// 顶部/快捷操作卡的「正在计时」时长：订阅全局 store，由 MainLayout 持续推进
+const liveElapsed = computed(() => fmt(timer.elapsedSec))
 
 function fmt(s: number): string {
   s = Math.max(0, Math.floor(s))
@@ -132,12 +130,10 @@ const todayStr = () => {
 
 async function loadAll() {
   try {
-    const [c, s, t] = await Promise.all([
-      getTimerCurrent(),
+    const [s, t] = await Promise.all([
       getPlanStats('day'),
       listTasks({ date: todayStr() }),
     ])
-    current.value = c.data || null
     stats.value = s.data
     const list = t.data || []
     tasks.value = list
@@ -149,13 +145,16 @@ async function loadAll() {
   }
 }
 
+// 行内「开始计时」→ 开启 task 模式计时（绑定计划时间段）+ 跳转（store 已处理 session）
 async function startTask(t: TaskItem) {
-  try {
-    await startTimer({ task_id: t.id })
-    router.push('/timer')
-  } catch {
-    /* ignore */
-  }
+  try { await timer.startTask(t) } catch { /* store 已提示 */ }
+  router.push('/timer')
+}
+
+// 顶部快捷「开始计时」→ 一键开始自由计时（不绑任务）+ 跳转
+async function quickStartFree() {
+  try { await timer.startFree() } catch { /* store 已提示 */ }
+  router.push('/timer')
 }
 
 const goUpload = () => router.push('/upload')
@@ -166,9 +165,8 @@ const goTasks = () => router.push('/tasks')
 
 onMounted(async () => {
   await loadAll()
-  tick = window.setInterval(() => { now.value = Date.now() }, 1000)
+  // 全局 tick 由 MainLayout 驱动；本页不再重复 setInterval
 })
-onBeforeUnmount(() => { if (tick) clearInterval(tick) })
 </script>
 
 <style scoped>
