@@ -61,11 +61,22 @@
               <el-icon :size="18"><Bell /></el-icon>
             </el-button>
           </el-badge>
-          <el-avatar :size="36" class="user-avatar">研</el-avatar>
-          <div class="user-meta">
-            <div class="user-name">考研同学</div>
-            <div class="user-role">考研ing · 2027</div>
-          </div>
+          <el-dropdown trigger="click" @command="onUserCommand">
+            <div class="user-box">
+              <el-avatar :size="36" class="user-avatar">{{ avatarText }}</el-avatar>
+              <div class="user-meta">
+                <div class="user-name">{{ user.username || '未登录' }}</div>
+                <div class="user-role">{{ user.isLoggedIn ? '已登录' : '点击登录' }}</div>
+              </div>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="logout" :disabled="!user.isLoggedIn" divided>
+                  退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
 
@@ -87,7 +98,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   List, Upload, Timer, Setting, HomeFilled, DataLine,
   MagicStick, Bell,
@@ -95,8 +106,22 @@ import {
 import ReminderSettings from '@/views/ReminderSettings.vue'
 import ReminderPopup from '@/views/ReminderPopup.vue'
 import { getPendingReminders } from '@/api/reminder'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
+const router = useRouter()
+const user = useUserStore()
+
+// 头像取用户名首字符（未登录时兜底「研」）
+const avatarText = computed(() => (user.username || '研').charAt(0).toUpperCase())
+
+/** 顶栏用户下拉：目前仅「退出登录」一项；登出后回登录页。 */
+function onUserCommand(cmd: string) {
+  if (cmd === 'logout') {
+    user.logout()
+    router.push('/auth')
+  }
+}
 
 const titleMap: Record<string, string> = {
   '/': '首页',
@@ -207,6 +232,8 @@ onBeforeUnmount(() => {
 .header-date { margin: 0; font-size: 12px; color: var(--text-muted); }
 .header-actions { display: flex; align-items: center; gap: 14px; margin-left: auto; }
 .bell :deep(.el-button) { color: var(--text-secondary); }
+.user-box { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 6px; border-radius: 8px; }
+.user-box:hover { background: var(--el-fill-color-light); }
 .user-avatar { background: linear-gradient(135deg, #14B8A6, #0F766E); color: #fff; font-weight: 700; }
 .user-meta { line-height: 1.2; }
 .user-name { font-size: 13px; font-weight: 600; color: var(--text-strong); }

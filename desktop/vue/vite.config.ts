@@ -38,4 +38,15 @@ export default defineConfig({
       },
     },
   },
+  // 生产构建预览（Web 运行）：托管 dist 并代理 /api 到本地后端
+  preview: {
+    port: 4173,
+    host: true, // 监听 0.0.0.0，局域网设备（手机/他人电脑）可通过本机 IP 访问
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5088',
+        changeOrigin: true,
+      },
+    },
+  },
 })
