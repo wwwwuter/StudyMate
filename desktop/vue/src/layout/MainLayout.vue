@@ -56,6 +56,11 @@
         </div>
 
         <div class="header-actions">
+          <button v-if="timerRunning" class="timer-chip" @click="router.push('/timer')">
+            <span class="chip-dot"></span>
+            <span class="chip-label">{{ timerSummary?.label }}</span>
+            <span class="chip-clock">{{ timerSummary?.clock }}</span>
+          </button>
           <el-badge :value="pendingCount" :hidden="pendingCount === 0" :max="99" class="bell">
             <el-button circle text @click="reminderVisible = true">
               <el-icon :size="18"><Bell /></el-icon>
@@ -88,7 +93,7 @@
     <ReminderSettings
       :visible="reminderVisible"
       @update:visible="reminderVisible = $event"
-      @saved="refreshCount"
+      @saved="reminder.refreshPending"
     />
 
     <!-- 前台运行时弹出的学习提醒 -->
@@ -99,18 +104,24 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import {
   List, Upload, Timer, Setting, HomeFilled, DataLine,
   MagicStick, Bell,
 } from '@element-plus/icons-vue'
 import ReminderSettings from '@/views/ReminderSettings.vue'
 import ReminderPopup from '@/views/ReminderPopup.vue'
-import { getPendingReminders } from '@/api/reminder'
 import { useUserStore } from '@/stores/user'
+import { useTimerStore } from '@/stores/timer'
+import { useReminderStore } from '@/stores/reminder'
 
 const route = useRoute()
 const router = useRouter()
 const user = useUserStore()
+const timer = useTimerStore()
+const reminder = useReminderStore()
+const { summary: timerSummary, running: timerRunning } = storeToRefs(timer)
+const { pendingCount } = storeToRefs(reminder)
 
 // 头像取用户名首字符（未登录时兜底「研」）
 const avatarText = computed(() => (user.username || '研').charAt(0).toUpperCase())
@@ -138,23 +149,13 @@ const todayText = new Date().toLocaleDateString('zh-CN', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
 })
 
-// ---- 提醒：铃铛入口 + 待提醒数量徽标 ----
+// ---- 提醒：铃铛入口 + 待提醒数量徽标（全局 store，轮询刷新）----
 const reminderVisible = ref(false)
-const pendingCount = ref(0)
 let countTimer: number | undefined
 
-async function refreshCount() {
-  try {
-    const res = await getPendingReminders()
-    pendingCount.value = (res.data || []).length
-  } catch {
-    /* 忽略瞬时错误 */
-  }
-}
-
 onMounted(() => {
-  refreshCount()
-  countTimer = window.setInterval(refreshCount, 20_000)
+  reminder.refreshPending()
+  countTimer = window.setInterval(() => reminder.refreshPending(), 20_000)
 })
 onBeforeUnmount(() => {
   if (countTimer !== undefined) {
@@ -231,6 +232,22 @@ onBeforeUnmount(() => {
 .header-title h2 { margin: 0; font-size: 18px; color: var(--text-strong); font-weight: 700; }
 .header-date { margin: 0; font-size: 12px; color: var(--text-muted); }
 .header-actions { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+.timer-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border-secondary, rgba(20, 184, 166, 0.35));
+  background: var(--color-background-secondary, #F0FDFA);
+  border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  font-size: 13px; color: var(--brand-700, #0F766E); transition: all .15s;
+}
+.timer-chip:hover { background: var(--color-background-info, #E6F1FB); }
+.chip-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #10B981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+  animation: chip-pulse 1.6s ease-in-out infinite;
+}
+@keyframes chip-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.chip-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.chip-clock { font-variant-numeric: tabular-nums; font-weight: 600; }
 .bell :deep(.el-button) { color: var(--text-secondary); }
 .user-box { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 6px; border-radius: 8px; }
 .user-box:hover { background: var(--el-fill-color-light); }
