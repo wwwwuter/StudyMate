@@ -49,6 +49,8 @@ export const useTimerStore = defineStore('timer', () => {
   // ---- 计划计时 ----
   const taskOverNotified = ref(false)
   const extraStartAt = ref<number | null>(null)
+  // 点继续学习那一刻的「已超出」值（秒），之后冻结不再增长；未点继续时为 null，副标题用实时值
+  const overtimeAtContinue = ref<number | null>(null)
 
   const mode = computed<TimerMode>(() => {
     if (!session.value) return 'task'
@@ -85,6 +87,12 @@ export const useTimerStore = defineStore('timer', () => {
   const extraSec = computed(() => {
     if (!extraStartAt.value) return 0
     return Math.max(0, Math.floor((now.value - extraStartAt.value) / 1000))
+  })
+  // 「已超出」时长：点继续学习后冻结为那一刻的值（不再随时间增长），未点继续时实时累加
+  const overtimeSec = computed(() => {
+    if (overtimeAtContinue.value !== null) return overtimeAtContinue.value
+    if (mode.value !== 'task' || Number.isNaN(planEndMs.value)) return 0
+    return Math.max(0, Math.floor((now.value - planEndMs.value) / 1000))
   })
   const taskEarlyMin = computed(() => {
     if (mode.value !== 'task' || Number.isNaN(planStartMs.value)) return 0
@@ -143,10 +151,7 @@ export const useTimerStore = defineStore('timer', () => {
       const early = taskEarlyMin.value > 0 ? `· 提前 ${taskEarlyMin.value} 分钟开始` : ''
       let state = ''
       if (taskOver.value) {
-        const over = Number.isNaN(planEndMs.value)
-          ? 0
-          : Math.max(0, Math.floor((now.value - planEndMs.value) / 1000))
-        state = `· 计划结束 · 已超出 ${fmt(over)} · 额外学习 ${fmt(extraSec.value)}`
+        state = `· 计划结束 · 已超出 ${fmt(overtimeSec.value)} · 额外学习 ${fmt(extraSec.value)}`
       } else {
         state = `· 剩余 ${fmt(taskLeft.value)}`
       }
@@ -172,6 +177,7 @@ export const useTimerStore = defineStore('timer', () => {
     pomoCycle.value = 1
     taskOverNotified.value = false
     extraStartAt.value = null
+    overtimeAtContinue.value = null
   }
 
   /** App 启动水合：从 /system/bootstrap 恢复（后端权威，含番茄段/倒计时目标）。 */
@@ -254,9 +260,12 @@ export const useTimerStore = defineStore('timer', () => {
     }
   }
 
-  /** 计划超时弹窗：点「继续学习」——额外学习从此刻起算（从 0 累加）。 */
+  /** 计划超时弹窗：点「继续学习」——额外学习从此刻起算（从 0 累加）；同时冻结「已超出」值。 */
   function continueOvertime() {
     extraStartAt.value = Date.now()
+    if (mode.value === 'task' && !Number.isNaN(planEndMs.value)) {
+      overtimeAtContinue.value = Math.max(0, Math.floor((now.value - planEndMs.value) / 1000))
+    }
   }
 
   // ---- 计时结束 → 完成判定（全局弹窗由 MainLayout 挂载的 CompleteTaskDialog 消费）----
@@ -272,6 +281,7 @@ export const useTimerStore = defineStore('timer', () => {
     }
     session.value = null
     extraStartAt.value = null
+    overtimeAtContinue.value = null
     taskOverNotified.value = false
     // 任务模式计时结束（含倒计时归零/番茄一轮自动结束）：询问是否完成任务
     if (stopped && stopped.mode === 'task' && stopped.task_id) {
@@ -360,6 +370,7 @@ export const useTimerStore = defineStore('timer', () => {
     taskOver,
     taskEarlyMin,
     extraSec,
+    overtimeSec,
     pomoLeft,
     countdownLeft,
     clockText,
