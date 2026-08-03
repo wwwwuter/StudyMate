@@ -11,6 +11,11 @@
 
     <!-- 上传区 -->
     <div v-if="step === 'upload'" class="upload-zone">
+      <!-- AI 解析中提示：请勿切换页面（切换后无法看到解析结果） -->
+      <div v-if="parsing" class="parse-tip" role="alert">
+        <span class="pt-dot"></span>
+        <span>{{ parseProgress }} <b>请勿切换页面</b>，解析完成后会自动显示结果</span>
+      </div>
       <el-input
         v-model="textInput"
         type="textarea"
@@ -275,7 +280,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { UploadFilled, Files, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { parsePlan, confirmPlans, type PlanItem } from '@/api/plan'
@@ -599,6 +604,18 @@ async function saveEdit() {
 onMounted(() => {
   loadPlans()
 })
+
+// AI 解析中切换页面：确认提醒（离开则无法看到本次解析结果）
+onBeforeRouteLeave(() => {
+  if (!parsing.value) return true
+  return ElMessageBox.confirm(
+    'AI 正在解析计划，切换页面将看不到本次解析结果。确定离开？',
+    '解析进行中',
+    { type: 'warning', confirmButtonText: '仍要离开', cancelButtonText: '留下等待' },
+  )
+    .then(() => true)
+    .catch(() => false)
+})
 </script>
 
 <style scoped>
@@ -607,6 +624,19 @@ onMounted(() => {
 .hint { color: var(--el-text-color-secondary); font-size: 13px; margin: 0 0 20px; line-height: 1.7; }
 .hint code { background: var(--el-fill-color-light); padding: 1px 6px; border-radius: 4px; }
 .upload-zone { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; }
+.parse-tip {
+  display: flex; align-items: center; gap: 10px;
+  background: #FEF3C7; color: #92400E;
+  border: 1px solid #FCD34D; border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 16px;
+  font-size: 13px;
+}
+.pt-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  background: #F59E0B;
+  animation: pt-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .text-area { margin-bottom: 16px; }
 .upload-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .divider { color: var(--text-muted); font-size: 13px; }
