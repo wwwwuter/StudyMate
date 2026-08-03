@@ -98,6 +98,9 @@
 
     <!-- 前台运行时弹出的学习提醒 -->
     <ReminderPopup />
+
+    <!-- 计时结束后的「是否完成任务」判定弹窗（全局） -->
+    <CompleteTaskDialog />
   </el-container>
 </template>
 
@@ -111,6 +114,7 @@ import {
 } from '@element-plus/icons-vue'
 import ReminderSettings from '@/views/ReminderSettings.vue'
 import ReminderPopup from '@/views/ReminderPopup.vue'
+import CompleteTaskDialog from '@/views/CompleteTaskDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useTimerStore } from '@/stores/timer'
 import { useReminderStore } from '@/stores/reminder'

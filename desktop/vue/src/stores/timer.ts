@@ -259,15 +259,50 @@ export const useTimerStore = defineStore('timer', () => {
     extraStartAt.value = Date.now()
   }
 
+  // ---- 计时结束 → 完成判定（全局弹窗由 MainLayout 挂载的 CompleteTaskDialog 消费）----
+  const pendingComplete = ref<{ session: TimerSessionItem; taskId: number } | null>(null)
+
   async function stop(silent = false) {
+    let stopped: TimerSessionItem | null = null
     try {
-      await stopTimer({})
+      const res = await stopTimer({})
+      stopped = res.data || null
     } catch (e: any) {
       if (!silent) ElMessage.error(e?.message || '结束失败')
     }
     session.value = null
     extraStartAt.value = null
     taskOverNotified.value = false
+    // 任务模式计时结束（含倒计时归零/番茄一轮自动结束）：询问是否完成任务
+    if (stopped && stopped.mode === 'task' && stopped.task_id) {
+      pendingComplete.value = { session: stopped, taskId: stopped.task_id }
+    }
+  }
+
+  /** 完成判定弹窗的决策：done=标记完成 / continue=继续学习(重新开计时) / later=稍后处理。 */
+  async function decideTaskComplete(action: 'done' | 'continue' | 'later') {
+    const pc = pendingComplete.value
+    pendingComplete.value = null
+    if (!pc) return
+    if (action === 'done') {
+      try {
+        const { updateTask } = await import('@/api/task')
+        await updateTask(pc.taskId, { status: 'done' })
+        ElMessage.success('任务已完成，保持记录！')
+      } catch (e: any) {
+        ElMessage.error(e?.message || '标记完成失败')
+      }
+    } else if (action === 'continue') {
+      // 继续学习：立即重新开启该任务的计划计时
+      try {
+        const res = await startTimer({ mode: 'task', task_id: pc.taskId })
+        applySession(res.data)
+        ElMessage.success('已继续学习该任务')
+      } catch (e: any) {
+        ElMessage.error(e?.message || '继续学习失败')
+      }
+    }
+    // 'later'：保持 pending，不更新任务状态
   }
 
   /** 每秒推进：更新时钟 + 处理番茄/倒计时归零 + 计划超时提示（全局唯一 tick）。 */
@@ -339,6 +374,8 @@ export const useTimerStore = defineStore('timer', () => {
     reportCycle,
     continueOvertime,
     stop,
+    pendingComplete,
+    decideTaskComplete,
     tick,
     startTicking,
     stopTicking,
