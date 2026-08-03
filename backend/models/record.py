@@ -24,6 +24,8 @@ class StudyRecord(db.Model):
     subject = db.Column(db.String(32), nullable=True, comment='关联科目（冗余存储便于统计）')
     # 倒计时目标时长（秒）；正计时/番茄钟为 null
     planned_duration = db.Column(db.Integer, nullable=True, comment='计划时长（秒，倒计时用）')
+    # 计划时间段超时后继续学习的额外时长（秒），不计入计划内时长但单独统计
+    extra_duration = db.Column(db.Integer, default=0, comment='超时继续学习的额外时长（秒）')
     note = db.Column(db.String(255), nullable=True, comment='备注')
     create_time = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -38,6 +40,7 @@ class StudyRecord(db.Model):
             'mode': self.record_type,
             'subject': self.subject,
             'planned_duration': self.planned_duration,
+            'extra_duration': self.extra_duration,
             'note': self.note,
             'create_time': self.create_time.strftime('%Y-%m-%d %H:%M:%S') if self.create_time else None,
         }

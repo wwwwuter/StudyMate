@@ -6,10 +6,12 @@ class StudyTask(db.Model):
     __tablename__ = 'study_tasks'
 
     # 任务状态枚举
-    STATUS_PENDING = 'pending'
-    STATUS_DONE = 'done'
-    STATUS_CANCELLED = 'cancelled'
-    VALID_STATUSES = (STATUS_PENDING, STATUS_DONE, STATUS_CANCELLED)
+    STATUS_PENDING = 'pending'      # 未开始
+    STATUS_RUNNING = 'running'      # 学习中（已开始计时）
+    STATUS_DONE = 'done'            # 已完成
+    STATUS_CANCELLED = 'cancelled'  # 已取消
+    STATUS_EXPIRED = 'expired'      # 超过计划时间段（未按时完成）
+    VALID_STATUSES = (STATUS_PENDING, STATUS_RUNNING, STATUS_DONE, STATUS_CANCELLED, STATUS_EXPIRED)
 
     # 计划来源枚举（用于区分手动录入与各类导入）
     SOURCE_MANUAL = 'manual'
@@ -22,6 +24,9 @@ class StudyTask(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    # 所属计划版本（study_plans.id）；手动录入/旧数据为 null
+    plan_id = db.Column(db.Integer, db.ForeignKey('study_plans.id'), nullable=True, index=True,
+                        comment='所属计划版本（study_plans.id）')
     date = db.Column(db.Date, nullable=False, index=True)
     subject = db.Column(db.String(32), nullable=False, comment='科目：数学/英语/政治/408')
     content = db.Column(db.String(512), nullable=False, comment='任务内容')
@@ -47,6 +52,7 @@ class StudyTask(db.Model):
         return {
             'id': self.id,
             'user_id': self.user_id,
+            'plan_id': self.plan_id,
             'date': self.date.strftime('%Y-%m-%d') if self.date else None,
             'subject': self.subject,
             'content': self.content,
