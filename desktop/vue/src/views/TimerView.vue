@@ -143,7 +143,12 @@ const elapsedSec = computed(() => {
   return Math.floor((now.value - startedAt) / 1000)
 })
 
-// ---- 计划计时（task 模式）：按计划时间段倒计时 ----
+// ---- 计划计时（task 模式）：按计划时间段倒计时 + 超时额外学习 ----
+const planStartMs = computed(() => {
+  if (!current.value?.plan_start_time) return NaN
+  const ms = new Date(current.value.plan_start_time).getTime()
+  return Number.isNaN(ms) ? NaN : ms
+})
 const planEndMs = computed(() => {
   if (!current.value?.plan_end_time) return NaN
   const ms = new Date(current.value.plan_end_time).getTime()
@@ -157,6 +162,12 @@ const taskOver = computed(() => {
   if (mode.value !== 'task' || Number.isNaN(planEndMs.value)) return false
   return now.value > planEndMs.value
 })
+const planDurationSec = computed(() => {
+  // 计划内时长（秒）；有 plan 字段才计算
+  if (Number.isNaN(planStartMs.value) || Number.isNaN(planEndMs.value)) return 0
+  return Math.max(0, Math.floor((planEndMs.value - planStartMs.value) / 1000))
+})
+const extraSec = computed(() => Math.max(0, elapsedSec.value - planDurationSec.value))
 const taskEarlyMin = computed(() => {
   // 提前开始分钟数：实际开始 < 计划开始
   if (mode.value !== 'task' || !current.value?.plan_start_time || !current.value.started_at) return 0
@@ -180,7 +191,9 @@ const runSubText = computed(() => {
         ? `${fmtClock(current.value.plan_start_time)}-${fmtClock(current.value.plan_end_time)}`
         : ''
     const early = taskEarlyMin.value > 0 ? `· 提前 ${taskEarlyMin.value} 分钟开始` : ''
-    const state = taskOver.value ? '· 已超计划' : `· 剩余 ${fmt(taskLeft.value)}`
+    const state = taskOver.value
+      ? `· 已超计划 · 额外学习 ${fmt(extraSec.value)}`
+      : `· 剩余 ${fmt(taskLeft.value)}`
     return `${task?.content || ''} ${span} ${state} ${early}`.trim()
   }
   return ''
@@ -189,8 +202,10 @@ const runSubText = computed(() => {
 const clockText = computed(() => {
   if (mode.value === 'pomodoro' && pomodoroActive.value) return fmt(pomoLeft.value)
   if (mode.value === 'countdown' && countdownActive.value) return fmt(countdownLeft.value)
-  // 计划计时：显示计划时间段剩余（倒计时）；无计划结束时间的旧任务回退正计时
-  if (mode.value === 'task' && !Number.isNaN(planEndMs.value)) return fmt(taskLeft.value)
+  // 计划计时：未超时显示计划时间段剩余（倒计时），超时显示额外学习时长（从 0 累加）
+  if (mode.value === 'task' && !Number.isNaN(planEndMs.value)) {
+    return taskOver.value ? fmt(extraSec.value) : fmt(taskLeft.value)
+  }
   if (current.value) return fmt(elapsedSec.value)
   return '00:00'
 })
