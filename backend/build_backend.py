@@ -72,7 +72,9 @@ EXCLUDES = [
 ]
 
 # 收集后端用到的全部子包，避免动态导入漏打
-COLLECT_SUBDIRS = ["app", "models", "routes", "services", "ai", "utils", "parser"]
+# 注意：prompts/ 必须包含——缺了 exe 会回退 ai/prompt.py 内置提示词，
+# 若内置版本与文件版不一致会导致 App/Web 解析结果不同（如日期推算缺失）。
+COLLECT_SUBDIRS = ["app", "models", "routes", "services", "ai", "utils", "parser", "prompts"]
 
 
 def main():
