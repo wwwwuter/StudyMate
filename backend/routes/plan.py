@@ -374,6 +374,22 @@ def timer_start(current_user):
         status=TimerSession.STATUS_RUNNING,
         note=note or None,
     )
+    # 状态重建字段（Phase 6）：番茄钟/倒计时持久化目标时长与阶段起点
+    raw_duration = data.get('duration')
+    if mode == TimerSession.MODE_POMODORO:
+        session.pomodoro_phase = 'work'
+        session.phase_started_at = session.started_at
+        if raw_duration:
+            try:
+                session.target_seconds = int(raw_duration)
+            except (TypeError, ValueError):
+                pass
+    elif mode == TimerSession.MODE_COUNTDOWN:
+        if raw_duration:
+            try:
+                session.target_seconds = int(raw_duration)
+            except (TypeError, ValueError):
+                pass
     # task 模式：从 StudyTask 计算计划时间段（本地 → UTC），供前端「计划倒计时」显示
     if mode == TimerSession.MODE_TASK and task_id:
         t = StudyTask.query.get(task_id)
@@ -383,6 +399,36 @@ def timer_start(current_user):
     db.session.add(session)
     db.session.commit()
     return jsonify({'code': 200, 'message': '计时开始', 'data': _session_dict(session)})
+
+
+@plan_bp.route('/timer/phase', methods=['POST'])
+@login_required
+def timer_phase(current_user):
+    """同步番茄钟当前阶段（work/break）到后端，供刷新/重启后重建剩余时间。
+
+    body: {phase, target_seconds?}
+    - phase 必填（work/break）；切段时 phase_started_at 重置为当前时刻。
+    - target_seconds 可选：新阶段的目标时长（秒），不传则沿用上次值。
+    """
+    data = request.get_json(silent=True) or {}
+    phase = data.get('phase')
+    if phase not in ('work', 'break'):
+        return jsonify({'code': 400, 'message': 'phase 必须为 work 或 break'}), 400
+    session = TimerSession.query.filter_by(
+        user_id=current_user.id, status=TimerSession.STATUS_RUNNING
+    ).first()
+    if session is None or session.mode != TimerSession.MODE_POMODORO:
+        return jsonify({'code': 400, 'message': '当前没有运行中的番茄钟'}), 400
+    session.pomodoro_phase = phase
+    session.phase_started_at = datetime.utcnow()
+    target = data.get('target_seconds')
+    if target:
+        try:
+            session.target_seconds = int(target)
+        except (TypeError, ValueError):
+            pass
+    db.session.commit()
+    return jsonify({'code': 200, 'message': '阶段已同步', 'data': _session_dict(session)})
 
 
 @plan_bp.route('/timer/cycle', methods=['POST'])

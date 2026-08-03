@@ -37,6 +37,12 @@ class TimerSession(db.Model):
     duration_seconds = db.Column(db.Integer, nullable=True, comment='时长（秒），结束时计算')
     status = db.Column(db.String(16), default=STATUS_RUNNING, comment='running/done/cancelled')
     note = db.Column(db.String(256), nullable=True, comment='备注（如手动计时主题）')
+    # 刷新/重启后的状态重建字段（Phase 6）：番茄钟当前阶段 + 目标时长
+    pomodoro_phase = db.Column(db.String(8), nullable=True, comment='番茄钟阶段：work/break')
+    phase_started_at = db.Column(db.DateTime, nullable=True,
+                                 comment='当前阶段开始时刻（用于刷新后重建剩余时间）')
+    target_seconds = db.Column(db.Integer, nullable=True,
+                               comment='目标时长（秒）：pomodoro=当前阶段目标 / countdown=倒计时目标')
     created_at = db.Column(db.DateTime, default=utcnow)
 
     def to_dict(self):
@@ -50,6 +56,9 @@ class TimerSession(db.Model):
             'ended_at': self.ended_at.strftime('%Y-%m-%dT%H:%M:%SZ') if self.ended_at else None,
             'plan_start_time': self.plan_start_time.strftime('%Y-%m-%dT%H:%M:%SZ') if self.plan_start_time else None,
             'plan_end_time': self.plan_end_time.strftime('%Y-%m-%dT%H:%M:%SZ') if self.plan_end_time else None,
+            'pomodoro_phase': self.pomodoro_phase,
+            'phase_started_at': self.phase_started_at.strftime('%Y-%m-%dT%H:%M:%SZ') if self.phase_started_at else None,
+            'target_seconds': self.target_seconds,
             'duration_seconds': self.duration_seconds,
             'status': self.status,
             'note': self.note,
