@@ -274,7 +274,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { UploadFilled, Files, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -304,8 +304,6 @@ const parseProgress = ref('')
 const saving = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error'>('success')
-// 进行中的解析请求（切页/卸载时取消，避免后台空跑）
-let parseAbort: AbortController | null = null
 
 const needsReviewCount = computed(() => plans.value.filter((p) => p.needs_review).length)
 
@@ -314,13 +312,10 @@ function isImage(name: string) {
 }
 
 async function doParse(form: FormData, isImageFile = false) {
-  // 取消上一次未完成的解析（如有）
-  if (parseAbort) parseAbort.abort()
-  parseAbort = new AbortController()
   parsing.value = true
   parseProgress.value = isImageFile ? 'AI 正在识别图片中的计划…' : 'AI 正在识别计划内容…'
   try {
-    const res = await parsePlan(form, parseAbort.signal)
+    const res = await parsePlan(form)
     if (res.code === 200 && Array.isArray(res.data?.plans)) {
       plans.value = res.data.plans
       planName.value = res.data.plan_name || ''
@@ -336,10 +331,6 @@ async function doParse(form: FormData, isImageFile = false) {
       messageType.value = 'error'
     }
   } catch (e: any) {
-    // 切走页面主动取消：静默，不弹错误（组件已卸载/正在离开）
-    if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError' || e?.message?.includes('canceled')) {
-      return
-    }
     const msg = e?.message || ''
     const isAiKeyError =
       /401|unauthorized|认证失败|API Key|api key|未配置.*[Kk]ey|invalid.*key/i.test(msg)
@@ -607,14 +598,6 @@ async function saveEdit() {
 
 onMounted(() => {
   loadPlans()
-})
-
-// 切走页面：取消进行中的 AI 解析请求（避免后台空跑与已卸载组件 setState）
-onBeforeUnmount(() => {
-  if (parseAbort) {
-    parseAbort.abort()
-    parseAbort = null
-  }
 })
 </script>
 

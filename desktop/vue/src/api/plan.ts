@@ -12,12 +12,11 @@ export interface PlanItem {
 }
 
 /** 解析上传的计划（文本 / 文件），返回可编辑的计划列表（不落库）。 */
-export const parsePlan = (form: FormData, signal?: AbortSignal) =>
+export const parsePlan = (form: FormData) =>
   request
     .post('/plans/parse', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120_000, // AI 视觉/文档解析较慢，单独延长
-      signal, // 组件卸载/切页时可由外部取消
     })
     .then(
       (r) =>
