@@ -27,7 +27,7 @@ def _post_task(client, headers, date_str, start_str, subject='数学', content='
 
 def test_sweep_creates_reminder_for_soon_task(app, client):
     h = _login(client)
-    now = utcnow()
+    now = utcnow() + timedelta(hours=8)  # 模拟本地当前时间
     d = now.date().isoformat()
     start = (now + timedelta(minutes=5)).strftime('%H:%M')  # 5 分钟后开始，默认提前 10 分钟 → 触发
     _post_task(client, h, d, start)
@@ -43,7 +43,7 @@ def test_sweep_creates_reminder_for_soon_task(app, client):
 
 def test_sweep_skips_far_future_task(app, client):
     h = _login(client)
-    now = utcnow()
+    now = utcnow() + timedelta(hours=8)  # 模拟本地当前时间
     d = now.date().isoformat()
     start = (now + timedelta(hours=3)).strftime('%H:%M')  # 3 小时后，超提前量 → 不触发
     _post_task(client, h, d, start)
@@ -55,7 +55,7 @@ def test_sweep_skips_far_future_task(app, client):
 
 def test_sweep_skips_cancelled_task(app, client):
     h = _login(client)
-    now = utcnow()
+    now = utcnow() + timedelta(hours=8)  # 模拟本地当前时间
     d = now.date().isoformat()
     start = (now + timedelta(minutes=5)).strftime('%H:%M')
     _post_task(client, h, d, start)
@@ -72,7 +72,7 @@ def test_sweep_skips_cancelled_task(app, client):
 
 def test_sweep_dedup(app, client):
     h = _login(client)
-    now = utcnow()
+    now = utcnow() + timedelta(hours=8)  # 模拟本地当前时间
     d = now.date().isoformat()
     start = (now + timedelta(minutes=5)).strftime('%H:%M')
     _post_task(client, h, d, start)
@@ -94,7 +94,7 @@ def test_respects_user_setting_disabled(app, client):
         db.session.add(s)
         db.session.commit()
 
-    now = utcnow()
+    now = utcnow() + timedelta(hours=8)  # 模拟本地当前时间
     d = now.date().isoformat()
     start = (now + timedelta(minutes=5)).strftime('%H:%M')
     _post_task(client, h, d, start)
@@ -106,7 +106,7 @@ def test_respects_user_setting_disabled(app, client):
 
 def test_pending_and_ack(app, client):
     h = _login(client)
-    now = utcnow()
+    now = utcnow() + timedelta(hours=8)  # 模拟本地当前时间
     d = now.date().isoformat()
     start = (now + timedelta(minutes=5)).strftime('%H:%M')
     _post_task(client, h, d, start)
@@ -141,6 +141,54 @@ def test_settings_get_and_save(app, client):
 
     g2 = client.get('/api/reminders/settings', headers=h)
     assert g2.get_json()['data']['lead_minutes'] == 30
+
+
+def test_sweep_creates_end_reminder(app, client):
+    """带 end_time 的任务进入结束窗口 → 生成 task_end 结束提醒。"""
+    h = _login(client)
+    local_now = utcnow() + timedelta(hours=8)  # 模拟本地当前时间
+    d = local_now.date().isoformat()
+    # 开始时间已过去（不触发开始提醒），结束时间 2 分钟后（触发结束提醒窗口）
+    start = (local_now - timedelta(hours=1)).strftime('%H:%M')
+    end = (local_now + timedelta(minutes=2)).strftime('%H:%M')
+    r = client.post(
+        '/api/tasks',
+        json={'date': d, 'subject': '数学', 'content': '高数强化',
+              'start_time': start, 'end_time': end, 'status': 'pending'},
+        headers=h,
+    )
+    assert r.status_code in (200, 201)
+
+    with app.app_context():
+        created = sweep_due_reminders()
+        assert created == 1
+        rs = Reminder.query.all()
+        assert len(rs) == 1
+        assert rs[0].type == Reminder.TYPE_TASK_END
+        # 幂等：重复扫描不重复生成
+        assert sweep_due_reminders() == 0
+        assert Reminder.query.count() == 1
+
+
+def test_sweep_start_and_end_same_task(app, client):
+    """同一任务同时落在开始与结束窗口 → 两条不同类型提醒，互不覆盖。"""
+    h = _login(client)
+    local_now = utcnow() + timedelta(hours=8)  # 模拟本地当前时间
+    d = local_now.date().isoformat()
+    start = (local_now + timedelta(minutes=2)).strftime('%H:%M')  # 开始窗口内
+    end = (local_now + timedelta(minutes=5)).strftime('%H:%M')    # 结束窗口内
+    client.post(
+        '/api/tasks',
+        json={'date': d, 'subject': '英语', 'content': '阅读',
+              'start_time': start, 'end_time': end, 'status': 'pending'},
+        headers=h,
+    )
+    with app.app_context():
+        created = sweep_due_reminders()
+        assert created == 2
+        types = {r.type for r in Reminder.query.all()}
+        assert Reminder.TYPE_TASK in types
+        assert Reminder.TYPE_TASK_END in types
 
 
 def test_scheduler_start_stop(app):

@@ -3,11 +3,13 @@ from utils.time_utils import utcnow
 
 
 class Reminder(db.Model):
-    """任务开始前提醒。由 APScheduler 扫描生成，前端轮询后弹出系统通知。"""
+    """任务提醒：开始前提醒（task）+ 结束时间提醒（task_end）。由 APScheduler 扫描生成，
+    前端轮询后弹出系统通知。"""
 
     __tablename__ = 'reminders'
 
-    TYPE_TASK = 'task'
+    TYPE_TASK = 'task'          # 任务开始前提醒（含提前量）
+    TYPE_TASK_END = 'task_end'  # 任务结束时间提醒
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)

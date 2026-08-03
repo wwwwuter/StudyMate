@@ -32,17 +32,45 @@ def get_setting(user_id):
     return s
 
 
+from utils.time_utils import utcnow
+
+
+# 中国时区（UTC+8）：StudyTask.date+time 为用户本地时间，sweep 与 now(UTC) 比较前需换算
+_LOCAL_UTC_DELTA = timedelta(hours=8)
+
+
+def _local_to_utc(dt: datetime) -> datetime:
+    """本地 naive datetime → UTC naive datetime（按中国时区）。"""
+    return dt - _LOCAL_UTC_DELTA
+
+
+def _create_reminder(task, setting, fire_at_local, rtype: str) -> bool:
+    """幂等创建一条提醒；已存在同任务同类型则跳过。返回是否新建。"""
+    exists = Reminder.query.filter_by(
+        user_id=task.user_id, task_id=task.id, type=rtype
+    ).first()
+    if exists:
+        return False
+    db.session.add(Reminder(
+        user_id=task.user_id,
+        task_id=task.id,
+        type=rtype,
+        subject=task.subject,
+        content=task.content,
+        fire_at=fire_at_local,
+        lead_minutes=setting.lead_minutes if rtype == Reminder.TYPE_TASK else 0,
+    ))
+    return True
+
+
 def sweep_due_reminders():
-    """扫描并生成即将开始任务的提醒。幂等：同一任务已有提醒则跳过。返回新建数量。
+    """扫描并生成即将开始/即将结束任务的提醒。幂等：同一任务同类型已有提醒则跳过。返回新建数量。
 
-    两类任务都会生成提醒：
-    1) 带 start_time 的：按「开始时间 - 提前量 ~ 开始时间 + 宽限」窗口触发。
-    2) 仅日期型任务（如艾宾浩斯铺排的学习/复习任务，无具体时刻）：
-       以 REMINDER_DEFAULT_HOUR 为触发整点，当天 0 点 ~ 次日 0 点之间均视为「今日待提醒」，
-       进入该天即生成一次提醒。
+    三类提醒：
+    1) 带 start_time 的任务：开始时间 - 提前量 ~ 开始时间 + 宽限 窗口内 → 开始前提醒(task)
+    2) 带 end_time 的任务：结束时间 - 5 分钟 ~ 结束时间 + 宽限 窗口内 → 结束时间提醒(task_end)
+    3) 仅日期型任务（无具体时刻）：当天整点(REMINDER_DEFAULT_HOUR) 生成一次提醒(task)
     """
-    from utils.time_utils import utcnow
-
     now = utcnow()
     horizon = now + timedelta(minutes=REMINDER_MAX_LOOKAHEAD)
 
@@ -59,36 +87,33 @@ def sweep_due_reminders():
             continue
 
         if t.start_time is not None:
-            task_dt = datetime.combine(t.date, t.start_time)
+            local_dt = datetime.combine(t.date, t.start_time)
+            task_dt = _local_to_utc(local_dt)  # 与 now(UTC) 同口径比较
             if task_dt > horizon:
                 continue
             lead = timedelta(minutes=setting.lead_minutes)
             grace = timedelta(minutes=REMINDER_GRACE_MINUTES)
-            if not (task_dt - lead <= now <= task_dt + grace):
-                continue
-            fire_at = task_dt
-        else:
-            # 日期型任务：仅当任务日 == 今天 时触发（当天 0 点后生效）
+            if task_dt - lead <= now <= task_dt + grace:
+                if _create_reminder(t, setting, local_dt, Reminder.TYPE_TASK):
+                    created += 1
+
+        # 结束时间提醒：进入结束前 5 分钟窗口
+        if t.end_time is not None:
+            local_end = datetime.combine(t.date, t.end_time)
+            end_dt = _local_to_utc(local_end)
+            grace = timedelta(minutes=REMINDER_GRACE_MINUTES)
+            if end_dt - timedelta(minutes=5) <= now <= end_dt + grace:
+                if _create_reminder(t, setting, local_end, Reminder.TYPE_TASK_END):
+                    created += 1
+
+        # 日期型任务（无 start_time）：当天整点提醒
+        if t.start_time is None:
             task_day_start = datetime.combine(t.date, datetime.min.time())
             if not (task_day_start <= now < task_day_start + timedelta(days=1)):
                 continue
-            fire_at = datetime.combine(t.date, datetime.min.time().replace(hour=REMINDER_DEFAULT_HOUR))
-
-        exists = Reminder.query.filter_by(
-            user_id=t.user_id, task_id=t.id, type=Reminder.TYPE_TASK
-        ).first()
-        if exists:
-            continue
-        db.session.add(Reminder(
-            user_id=t.user_id,
-            task_id=t.id,
-            type=Reminder.TYPE_TASK,
-            subject=t.subject,
-            content=t.content,
-            fire_at=fire_at,
-            lead_minutes=setting.lead_minutes,
-        ))
-        created += 1
+            local_fire = datetime.combine(t.date, datetime.min.time().replace(hour=REMINDER_DEFAULT_HOUR))
+            if _create_reminder(t, setting, local_fire, Reminder.TYPE_TASK):
+                created += 1
 
     if created:
         db.session.commit()
