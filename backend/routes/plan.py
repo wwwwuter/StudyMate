@@ -50,6 +50,7 @@ def parse_plan(current_user):
         return jsonify({'code': 400, 'message': '请提供 text 或上传文件'}), 400
 
     plans: list[dict] = []
+    plan_name: str | None = None
 
     try:
         from ai.service import AIService
@@ -61,15 +62,32 @@ def parse_plan(current_user):
 
             if ext in ('.txt', '.md'):
                 raw = file_storage.read().decode('utf-8', errors='ignore')
-                plans = _daily_tasks(svc.extract_tasks(raw, current_user.id))
+                parsed = svc.extract_tasks(raw, current_user.id)
+                plans = _daily_tasks(parsed)
+                plan_name = parsed.get('plan_name') if isinstance(parsed, dict) else None
 
             elif ext == '.docx':
-                plans = _daily_tasks(svc.extract_tasks_from_docx(file_storage, current_user.id))
+                parsed = svc.extract_tasks_from_docx(file_storage, current_user.id)
+                plans = _daily_tasks(parsed)
+                plan_name = parsed.get('plan_name') if isinstance(parsed, dict) else None
 
             elif ext == '.pdf':
                 from parser.pdf_parser import extract_pdf_text
                 pdf_text = extract_pdf_text(file_storage)
-                plans = _daily_tasks(svc.extract_tasks(pdf_text, current_user.id))
+                parsed = svc.extract_tasks(pdf_text, current_user.id)
+                plans = _daily_tasks(parsed)
+                plan_name = parsed.get('plan_name') if isinstance(parsed, dict) else None
+
+            elif ext in ('.xlsx', '.xls'):
+                # Excel 为结构化数据：表头映射直接抽取（非正则），无需 AI
+                from parser.excel_parser import extract_excel_rows, extract_excel_plan_name
+                plans = extract_excel_rows(file_storage)
+                plan_name = extract_excel_plan_name(file_storage)
+
+            elif ext == '.json':
+                # JSON 计划文件已结构化：{plan_name?, tasks:[...]} 或数组
+                raw = file_storage.read().decode('utf-8', errors='ignore')
+                plans, plan_name = _parse_json_plan(raw)
 
             elif ext in ('.png', '.jpg', '.jpeg'):
                 data = file_storage.read()
@@ -77,9 +95,11 @@ def parse_plan(current_user):
                 plans = svc.vision_parse_plan(b64, current_user.id)
 
             else:
-                return jsonify({'code': 400, 'message': '不支持的文件类型，请用 txt/md/pdf/docx/png/jpg'}), 400
+                return jsonify({'code': 400, 'message': '不支持的文件类型，请用 txt/md/pdf/docx/xlsx/json/png/jpg'}), 400
         else:
-            plans = _daily_tasks(svc.extract_tasks(text, current_user.id))
+            parsed = svc.extract_tasks(text, current_user.id)
+            plans = _daily_tasks(parsed)
+            plan_name = parsed.get('plan_name') if isinstance(parsed, dict) else None
 
     except ValueError as e:
         # 未配置 Key / 图片识别失败等，均为用户可修复的输入类问题
@@ -97,7 +117,7 @@ def parse_plan(current_user):
     return jsonify({
         'code': 200,
         'message': f'AI 识别到 {len(plans)} 条计划',
-        'data': {'plans': plans},
+        'data': {'plans': plans, 'plan_name': plan_name},
     })
 
 
@@ -108,22 +128,62 @@ def _daily_tasks(parsed) -> list[dict]:
     return parsed or []
 
 
+def _parse_json_plan(raw: str) -> tuple[list, str | None]:
+    """解析 JSON 计划文件：{plan_name?, tasks:[...]} 或直接数组。返回 (plans, plan_name)。"""
+    import json as _json
+
+    try:
+        data = _json.loads(raw)
+    except Exception:
+        return [], None
+
+    plan_name = data.get('plan_name') if isinstance(data, dict) else None
+    tasks = data.get('tasks') if isinstance(data, dict) else data
+    if not isinstance(tasks, list):
+        return [], plan_name
+
+    out = []
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        out.append({
+            'date': t.get('date'),
+            'subject': t.get('subject'),
+            'content': t.get('content'),
+            'start_time': t.get('start_time'),
+            'end_time': t.get('end_time'),
+            'priority': t.get('priority'),
+            'status': t.get('status', 'pending'),
+        })
+    return out, plan_name
+
+
 def _normalize_plan(p: dict) -> dict:
     if not isinstance(p, dict):
         return {'date': None, 'subject': '', 'content': '', 'start_time': None, 'end_time': None,
-                'needs_review': True}
+                'priority': 0, 'needs_review': True}
     date_val = _parse_date(p.get('date'))
     subject = normalize_subject(p.get('subject')) or ''
     content = (p.get('content') or '').strip()
     start = _parse_time(p.get('start_time'))
     end = _parse_time(p.get('end_time'))
     needs_review = (date_val is None) or (not subject) or (not content) or (start is None)
+    # 优先级归一化：high→1(高) / medium·low→0(普通) / 数字按 0普通·1高·2紧急
+    prio_map = {'high': 1, 'urgent': 2, '紧急': 2, 'medium': 0, 'low': 0, 'normal': 0, '普通': 0, '低': 0}
+    pv = p.get('priority')
+    if isinstance(pv, str):
+        priority = prio_map.get(pv.strip().lower(), 0)
+    elif isinstance(pv, (int, float)):
+        priority = int(pv)
+    else:
+        priority = 0
     return {
         'date': date_val.strftime('%Y-%m-%d') if date_val else None,
         'subject': subject,
         'content': content,
         'start_time': start.strftime('%H:%M') if start else None,
         'end_time': end.strftime('%H:%M') if end else None,
+        'priority': priority,
         'needs_review': needs_review,
     }
 

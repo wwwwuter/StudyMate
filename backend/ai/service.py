@@ -229,7 +229,9 @@ def _parse_tasks_json(raw: str) -> dict:
             return empty
 
     # 提取三段结构（新格式）或单段（旧格式）
+    plan_name = None
     if isinstance(data, dict):
+        plan_name = data.get('plan_name')
         daily_tasks = data.get('daily_tasks') or data.get('tasks') or data.get('data') or []
         schedule_template = data.get('schedule_template') or []
         weekly_goals = data.get('weekly_goals') or []
@@ -252,12 +254,14 @@ def _parse_tasks_json(raw: str) -> dict:
             'start_time': t.get('start_time'),
             'end_time': t.get('end_time'),
             'status': t.get('status', 'pending'),
+            'priority': t.get('priority'),
             'is_schedule': bool(t.get('is_schedule', False)),
         }
         if not item['content']:
             continue
         result_tasks.append(item)
     return {
+        'plan_name': plan_name,
         'daily_tasks': result_tasks,
         'schedule_template': schedule_template,
         'weekly_goals': weekly_goals,

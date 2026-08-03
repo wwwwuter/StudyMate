@@ -30,20 +30,24 @@
 ## 输出格式
 只输出 JSON，不要任何解释文字、不要 markdown 代码块：
 {
+  "plan_name": "暑假考研计划",
   "schedule_template": [
     {"time": "08:30-11:30", "label": "数学", "content": "3小时深度学习"}
   ],
   "daily_tasks": [
-    {"date": "2026-07-27", "subject": "数学", "content": "概率论：二维随机变量（基础课+课后题）", "start_time": "08:30", "end_time": "11:30"},
-    {"date": "2026-07-27", "subject": "408", "content": "计组-指令系统（1-2小节）", "start_time": "14:00", "end_time": "17:30"}
+    {"date": "2026-07-27", "subject": "数学", "content": "概率论：二维随机变量（基础课+课后题）", "start_time": "08:30", "end_time": "11:30", "priority": "high"},
+    {"date": "2026-07-27", "subject": "408", "content": "计组-指令系统（1-2小节）", "start_time": "14:00", "end_time": "17:30", "priority": "medium"}
   ]
 }
 
-字段要求（daily_tasks 每项**只要这 5 个字段**，不要多余字段）：
-- date: "YYYY-MM-DD"，尽量推算出具体日期
-- subject: 数学 / 英语 / 政治 / 408
-- content: 任务内容（剥离 `[ ]`、`【】` 等标记，保持简洁）
-- start_time / end_time: "HH:MM"
+字段要求：
+- plan_name: 从文档标题/主题推断的计划名称（如「暑假考研计划」「数学强化计划」），无法推断则省略
+- daily_tasks 每项**只要这 6 个字段**，不要多余字段：
+  - date: "YYYY-MM-DD"，尽量推算出具体日期
+  - subject: 数学 / 英语 / 政治 / 408
+  - content: 任务内容（剥离 `[ ]`、`【】` 等标记，保持简洁）
+  - start_time / end_time: "HH:MM"
+  - priority: "high" / "medium" / "low"（按任务重要性判断，无法判断则省略）
 
 保持输出紧凑，不要换行缩进过多。
 
