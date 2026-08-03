@@ -46,7 +46,8 @@ def main() -> None:
 
     # SQLite 单机模式跳过 Alembic，直接按 models 建表（幂等）
     with app.app_context():
-        import models  # noqa: F401  确保所有模型已注册到 metadata
+        import models as _models  # noqa: F401  确保所有模型已注册到 metadata
+        assert _models  # 显式使用，避免 pyflakes 未使用告警
         db.create_all()
 
     # 对已有的 SQLite 库补新增列（幂等，MySQL 走 Alembic 不在此处理）
@@ -57,6 +58,15 @@ def main() -> None:
     if app.config.get('REMINDER_ENABLED', True):
         from services.reminder_service import start_scheduler
         start_scheduler(app)
+
+    # Phase 6-5：启动时立即清理上次异常退出遗留的僵尸计时会话
+    try:
+        from scheduler.timer_cleanup import cleanup_stale_sessions
+        cleaned = cleanup_stale_sessions(app)
+        if cleaned:
+            print(f'[studymate-backend] cleaned {cleaned} stale timer session(s)', flush=True)
+    except Exception as e:
+        print(f'[studymate-backend] timer cleanup skipped: {e}', flush=True)
 
     print(f'[studymate-backend] serving on http://{args.host}:{args.port} '
           f'(data: {data_dir})', flush=True)

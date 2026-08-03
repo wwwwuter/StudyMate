@@ -126,6 +126,12 @@ def _scheduled_job(app):
             sweep_due_reminders()
         except Exception as e:  # 单轮失败不应拖垮调度器
             app.logger.error(f'提醒扫描失败: {e}')
+        # Phase 6-5：僵尸计时清理（函数内 import 避免循环依赖）
+        try:
+            from scheduler.timer_cleanup import cleanup_stale_sessions
+            cleanup_stale_sessions(app)
+        except Exception as e:
+            app.logger.warning(f'计时会话清理失败: {e}')
 
 
 def start_scheduler(app):
