@@ -29,6 +29,7 @@ def create_app(config_name='default'):
     from routes.reminder import pending, ack, get_settings, save_settings, sweep
     from routes.schedule import schedule_bp
     from routes.stat import stat_bp
+    from routes.system import system_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(user_bp, url_prefix='/api/user')
@@ -38,6 +39,7 @@ def create_app(config_name='default'):
     app.register_blueprint(plan_bp, url_prefix='/api/plans')
     app.register_blueprint(schedule_bp, url_prefix='/api/schedule')
     app.register_blueprint(stat_bp, url_prefix='/api/stat')
+    app.register_blueprint(system_bp, url_prefix='/api/system')
 
     # 提醒路由
     from flask import Blueprint
