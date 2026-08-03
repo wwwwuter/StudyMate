@@ -1,4 +1,4 @@
-"""Phase 6-5：僵尸计时清理（running 超时自动结束落库）。"""
+"""Phase 6-5：僵尸计时清理（running 超时自动结束，不入统计避免污染）。"""
 import datetime as dt
 
 from app.extensions import db
@@ -31,9 +31,10 @@ def test_cleanup_closes_very_old_running(app, client, auth_headers):
         s = TimerSession.query.first()
         assert s.status == TimerSession.STATUS_DONE
         assert s.ended_at is not None
-        # 结束已落 StudyRecord（统计口径一致）
+        assert s.duration_seconds == 0  # 僵尸：duration 清零
+        # 关键：僵尸不应入 StudyRecord（避免巨大 extra 污染「额外学习」统计）
         rec = StudyRecord.query.filter_by(task_id=s.task_id).first()
-        assert rec is not None
+        assert rec is None
 
 
 def test_cleanup_keeps_recent_running(app, client, auth_headers):
