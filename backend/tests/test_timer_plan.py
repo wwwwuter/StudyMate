@@ -98,3 +98,26 @@ def test_overtime_records_extra(client, auth_headers):
         assert rec.extra_duration == 300
         # 计划安排时长 = plan_end - plan_start = 2h55m（测试里 plan_start=now-3h, plan_end=now-5min）
         assert rec.planned_duration == 10500
+
+
+def test_stale_task_extra_is_zero(client, auth_headers):
+    """过期任务（计划日期早于今天）补学：plan_end 早于 started_at → extra 必须为 0。"""
+    uid = _uid(client)
+    yesterday = date.today() - timedelta(days=1)
+    tid = _add_task(client, uid, yesterday, start=dtime(7, 30), end=dtime(8, 30))
+    r = client.post('/api/plans/timer/start', headers=auth_headers,
+                    json={'mode': 'task', 'task_id': tid})
+    sid = r.get_json()['data']['id']
+    # 模拟已计时 1 分钟（避免 duration≈0 被 _sync 跳过）
+    with client.application.app_context():
+        s = TimerSession.query.get(sid)
+        s.started_at = datetime.utcnow() - timedelta(minutes=1)
+        db.session.commit()
+    client.post('/api/plans/timer/stop', headers=auth_headers, json={})
+    with client.application.app_context():
+        rec = (StudyRecord.query
+               .filter_by(user_id=uid, task_id=tid)
+               .order_by(StudyRecord.id.desc()).first())
+        assert rec is not None
+        assert rec.extra_duration == 0  # 过期补学不计额外
+        assert rec.duration > 0

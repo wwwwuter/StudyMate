@@ -295,7 +295,11 @@ def _sync_session_to_record(session: TimerSession):
             extra = 0
         else:
             effective = max(0, int((session.plan_end_time - session.started_at).total_seconds()))
-            extra = int((session.ended_at - session.plan_end_time).total_seconds())
+            # 「额外学习」仅当计划结束不早于实际开始时才累计（超时继续学习）。
+            # 对过期任务补学（plan_end 早已过去，start 时即"超时"）不产生额外时长，
+            # 否则几秒的补学会被记成 6~9 小时 extra（ended - plan_end 巨大）污染统计。
+            if session.plan_end_time >= session.started_at:
+                extra = int((session.ended_at - session.plan_end_time).total_seconds())
 
     db.session.add(StudyRecord(
         user_id=session.user_id,
