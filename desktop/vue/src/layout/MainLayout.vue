@@ -1,18 +1,18 @@
 <template>
   <el-container class="app-shell">
-    <!-- 侧边栏（窄屏 <768px 折叠为 64px 图标栏，适配手机/小屏） -->
-    <el-aside :width="isNarrow ? '64px' : '224px'" class="app-aside" :class="{ narrow: isNarrow }">
+    <!-- 侧边栏 -->
+    <el-aside width="224px" class="app-aside">
       <div class="brand">
         <div class="brand-logo">
           <span class="brand-mark">S</span>
         </div>
-        <div v-if="!isNarrow" class="brand-text">
+        <div class="brand-text">
           <div class="brand-name">StudyMate</div>
           <div class="brand-sub">专注计时学习助手</div>
         </div>
       </div>
 
-      <el-menu :default-active="activeMenu" class="app-menu" router :collapse="isNarrow" :collapse-transition="false">
+      <el-menu :default-active="activeMenu" class="app-menu" router>
         <el-menu-item index="/">
           <el-icon><HomeFilled /></el-icon>
           <span>首页</span>
@@ -39,7 +39,7 @@
         </el-menu-item>
       </el-menu>
 
-      <div v-if="!isNarrow" class="aside-foot">
+      <div class="aside-foot">
         <div class="ai-chip">
           <el-icon><MagicStick /></el-icon>
           <span>AI 计划识别已就绪</span>
@@ -153,25 +153,17 @@ const todayText = new Date().toLocaleDateString('zh-CN', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
 })
 
-// ---- 窄屏适配（<768px 侧边栏折叠为图标栏，适配手机/小屏平板）----
-const isNarrow = ref(typeof window !== 'undefined' && window.innerWidth < 768)
-function onResize() {
-  isNarrow.value = typeof window !== 'undefined' && window.innerWidth < 768
-}
-
 // ---- 提醒：铃铛入口 + 待提醒数量徽标（全局 store，轮询刷新）----
 const reminderVisible = ref(false)
 let countTimer: number | undefined
 
 onMounted(() => {
-  window.addEventListener('resize', onResize)
   reminder.refreshPending()
   countTimer = window.setInterval(() => reminder.refreshPending(), 20_000)
   // Phase 6-4 修正：tick 由 MainLayout 驱动（永远挂载），保证跨页面计时推进
   timer.startTicking()
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', onResize)
   if (countTimer !== undefined) {
     clearInterval(countTimer)
     countTimer = undefined
@@ -191,8 +183,6 @@ onBeforeUnmount(() => {
   padding: 18px 14px;
   color: #fff;
 }
-.app-aside.narrow { padding: 18px 0; }
-.app-aside.narrow .brand { justify-content: center; padding: 6px 0 18px; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 6px 8px 18px; }
 .brand-logo {
   width: 40px; height: 40px; border-radius: 12px;

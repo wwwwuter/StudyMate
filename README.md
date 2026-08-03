@@ -224,25 +224,6 @@ cd desktop/electron && npm run dist
 
 `nginx/studymate.conf` + `backend/Dockerfile` + `requirements.txt`（MySQL + Alembic 迁移）已提供模板，用于服务器多用户场景。
 
-### 8.6 移动端（Capacitor Android APK）
-
-前端是 Vue3 + Vite，可直接用 **Capacitor** 封装为 Android APK（保留 Flask 后端不变）：
-
-```bash
-cd desktop/vue
-# ① 配置后端地址：复制示例并按需修改（局域网指向电脑 IP:4173 / 上云指向域名）
-copy .env.capacitor.example .env.capacitor
-# ② 构建前端 + 同步到 Android 工程
-npm run build
-npx cap sync android
-# ③ 用 Android Studio 打开并生成 APK（需本机 Android SDK）
-npx cap open android
-```
-
-- 请求地址由 `VITE_API_BASE` 注入（`request.ts` 已支持），Android 端 `usesCleartextTraffic` 已开启（局域网 http）
-- 提醒走 `@capacitor/local-notifications` 原生通知
-- 局域网形态：电脑跑 `start_web.py`（后端 5088 + 网页版 4173），平板 APK 指向 `http://<电脑IP>:4173` 即共享同一份数据
-
 ## 9. 使用流程
 
 ```

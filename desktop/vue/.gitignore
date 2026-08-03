@@ -23,11 +23,3 @@ dist-build
 *.njsproj
 *.sln
 *.sw?
-
-# Capacitor / Android（源码入库，构建产物与 dist 副本排除）
-android/.gradle/
-android/build/
-android/app/build/
-android/local.properties
-android/capacitor-cordova-android-plugins/
-android/app/src/main/assets/public/
