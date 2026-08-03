@@ -77,11 +77,9 @@ export const useUserStore = defineStore('user', {
       localStorage.setItem('sm_username', username)
     },
     logout() {
-      try {
-        request.post('/auth/logout')
-      } catch {
-        /* ignore */
-      }
+      // 通知后端销毁会话（fire-and-forget）。token 可能已失效（401/500），
+      // 必须 catch 掉，否则 reject 会触发 main.ts 的 unhandledrejection 全局报错弹窗
+      request.post('/auth/logout').catch(() => {})
       this.token = ''
       this.username = ''
       localStorage.removeItem('sm_access_token')
