@@ -1,4 +1,6 @@
 import { onMounted, onBeforeUnmount } from 'vue'
+import { Capacitor } from '@capacitor/core'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import {
   getPendingReminders,
   ackReminders,
@@ -38,17 +40,39 @@ export function ensureNotifyPermission() {
   }
 }
 
-/** 弹出系统通知：优先 electronAPI（桌面 OS 通知），降级到浏览器 Notification。 */
-function notify(item: ReminderItem) {
+/** 弹出系统通知：原生（Capacitor Android）→ electronAPI（桌面）→ 浏览器 Notification（Web）三级降级。 */
+async function notify(item: ReminderItem) {
   const title = '⏰ 学习计划提醒'
   const when = item.fire_at ? item.fire_at.slice(11, 16) : ''
   const body = `${item.subject} · ${item.content}${when ? `（${when} 开始）` : ''}`
 
+  // ① Capacitor 原生通知（Android APK：WebView 内浏览器 Notification 不会弹系统通知）
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const perm = await LocalNotifications.requestPermissions()
+      if (perm.display !== 'granted') return
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: item.id,
+          title,
+          body,
+          iconColor: '#0F766E',
+        }],
+      })
+    } catch {
+      /* 原生通知失败忽略，不阻断提醒轮询 */
+    }
+    return
+  }
+
+  // ② Electron 桌面端（预留 IPC 通道；当前未实现则继续降级）
   const api = (window as any).electronAPI
   if (api?.showNotification) {
     api.showNotification({ title, body })
     return
   }
+
+  // ③ 浏览器 Notification（Electron 渲染进程 / 网页版）
   if (typeof window !== 'undefined' && 'Notification' in window) {
     if (Notification.permission === 'granted') {
       const n = new Notification(title, { body })
