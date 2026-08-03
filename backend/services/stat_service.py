@@ -38,13 +38,21 @@ def _subject_of_record(rec: StudyRecord, cache: dict) -> str:
     return '未关联'
 
 
+def _eff_duration(rec) -> int:
+    """计划有效学习时长（统计口径）：effective_duration；历史无该字段的记录回退真实时长。"""
+    v = getattr(rec, 'effective_duration', None)
+    if v is not None:
+        return v or 0
+    return rec.duration or 0
+
+
 def _group_by_subject(records, cache: dict | None = None) -> list[dict]:
-    """按科目聚合学习秒数，返回 [{name, time}]，按时间降序。"""
+    """按科目聚合有效学习秒数，返回 [{name, time}]，按时间降序。"""
     cache = cache or {}
     by_subject: dict[str, int] = {}
     for r in records:
         name = _subject_of_record(r, cache)
-        by_subject[name] = by_subject.get(name, 0) + (r.duration or 0)
+        by_subject[name] = by_subject.get(name, 0) + _eff_duration(r)
     return [
         {'name': k, 'time': v}
         for k, v in sorted(by_subject.items(), key=lambda x: -x[1])
@@ -70,7 +78,7 @@ def _split_by_mode(records) -> tuple[dict, dict]:
     count_by_mode: dict[str, int] = {}
     for r in records:
         m = r.record_type or StudyRecord.MODE_COUNTUP
-        time_by_mode[m] = time_by_mode.get(m, 0) + (r.duration or 0)
+        time_by_mode[m] = time_by_mode.get(m, 0) + _eff_duration(r)
         count_by_mode[m] = count_by_mode.get(m, 0) + 1
     return time_by_mode, count_by_mode
 
@@ -100,7 +108,8 @@ def today_stat(user) -> dict:
         StudyRecord.user_id == user.id,
         func.date(StudyRecord.start_time) == today_iso,
     ).all()
-    study_time = sum((r.duration or 0) for r in records)
+    study_time = sum(_eff_duration(r) for r in records)
+    extra_time = sum((r.extra_duration or 0) for r in records)
     subjects = _group_by_subject(records)
     mode_time, mode_sessions = _split_by_mode(records)
     # 自由计时口径合并历史 'focus'
@@ -149,6 +158,7 @@ def today_stat(user) -> dict:
     return {
         'date': today_iso,
         'study_time': study_time,
+        'extra_time': extra_time,
         'task_total': task_total,
         'task_completed': task_completed,
         'completion_rate': completion_rate,
@@ -171,7 +181,9 @@ def today_stat(user) -> dict:
 def all_stat(user) -> dict:
     """长期学习情况统计。"""
     records = StudyRecord.query.filter_by(user_id=user.id).all()
-    total_time = sum((r.duration or 0) for r in records)
+    total_time = sum(_eff_duration(r) for r in records)            # 计划有效学习时长（统计口径）
+    actual_total = sum((r.duration or 0) for r in records)         # 真实投入时长（行为分析）
+    extra_total = sum((r.extra_duration or 0) for r in records)    # 计划外额外学习
     total_sessions = len(records)
     subjects = _group_by_subject(records)
 
@@ -207,7 +219,7 @@ def all_stat(user) -> dict:
     start = end - timedelta(days=29)
     rows = db.session.query(
         func.date(StudyRecord.start_time),
-        func.coalesce(func.sum(StudyRecord.duration), 0),
+        func.coalesce(func.sum(StudyRecord.effective_duration), 0),
     ).filter(
         StudyRecord.user_id == user.id,
         StudyRecord.start_time >= datetime.combine(start, datetime.min.time()),
@@ -222,6 +234,8 @@ def all_stat(user) -> dict:
 
     return {
         'total_time': total_time,
+        'actual_total': actual_total,
+        'extra_total': extra_total,
         'total_sessions': total_sessions,
         'completed_tasks': completed_tasks,
         'completion_rate': completion_rate,

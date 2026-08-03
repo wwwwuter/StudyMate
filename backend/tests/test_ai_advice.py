@@ -44,6 +44,7 @@ def _add_record(client, uid, duration, subject='数学', record_type=StudyRecord
             start_time=datetime.utcnow() - timedelta(seconds=duration),
             end_time=datetime.utcnow(),
             duration=duration,
+            effective_duration=duration,  # 直接构造：有效=真实
             record_type=record_type,
             subject=subject,
         )

@@ -16,7 +16,27 @@ _COLUMN_MIGRATIONS = [
     ('timer_sessions', 'plan_end_time', "ALTER TABLE timer_sessions ADD COLUMN plan_end_time DATETIME"),
     ('study_tasks', 'plan_id', "ALTER TABLE study_tasks ADD COLUMN plan_id INTEGER"),
     ('study_records', 'extra_duration', "ALTER TABLE study_records ADD COLUMN extra_duration INTEGER NOT NULL DEFAULT 0"),
+    ('study_records', 'effective_duration', "ALTER TABLE study_records ADD COLUMN effective_duration INTEGER NOT NULL DEFAULT 0"),
 ]
+
+
+def _backfill_effective_duration(app):
+    """历史数据回填：effective_duration = duration - extra_duration（CASE 保护防负数）。
+
+    仅对「有真实计时但 effective 仍为 0」的旧记录执行一次（新写入记录 effective>0 不受影响）。
+    """
+    with app.app_context():
+        try:
+            db.session.execute(
+                text(
+                    "UPDATE study_records SET effective_duration = "
+                    "CASE WHEN duration > extra_duration THEN duration - extra_duration ELSE 0 END "
+                    "WHERE duration > 0 AND effective_duration = 0"
+                )
+            )
+            db.session.commit()
+        except Exception as e:  # 表不存在等：交给 create_all 兜底
+            app.logger.warning(f'backfill effective_duration skipped: {e}')
 
 
 def ensure_schema(app):
@@ -39,3 +59,5 @@ def ensure_schema(app):
                 db.session.commit()
         except Exception as e:  # 极小概率：表未初始化，交给 create_all 兜底
             app.logger.warning(f'ensure_schema skipped: {e}')
+    # 补列完成后回填历史 effective_duration（幂等）
+    _backfill_effective_duration(app)

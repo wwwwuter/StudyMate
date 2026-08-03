@@ -23,13 +23,18 @@ def _uid(client):
         return db.session.query(User).first().id
 
 
-def _add_task(client, uid, subject, content, status):
+def _add_task(client, uid, subject, content, status,
+              start=None, end=None):
     with client.application.app_context():
-        from datetime import date, time as dtime
+        from datetime import time as dtime
         import datetime as dt
+        if start is None:
+            start = dtime(9, 0)
+        if end is None:
+            end = dtime(10, 0)
         t = StudyTask(
             user_id=uid, date=dt.date.today(), subject=subject, content=content,
-            start_time=dtime(9, 0), end_time=dtime(10, 0), status=status,
+            start_time=start, end_time=end, status=status,
         )
         db.session.add(t)
         db.session.commit()
@@ -99,7 +104,13 @@ def test_task_timer_binds_task_id(client, auth_headers):
 
 def test_stats_split_by_mode(client, auth_headers):
     uid = _uid(client)
-    tid = _add_task(client, uid, '数学', '高数强化', StudyTask.STATUS_PENDING)
+    # 计划时间设为未来（本地 now+1h~+4h），保证任务计时未超时 → effective=实际时长
+    import datetime as dt_mod
+    f_start = (dt_mod.datetime.now() + dt_mod.timedelta(hours=1)).strftime('%H:%M')
+    f_end = (dt_mod.datetime.now() + dt_mod.timedelta(hours=4)).strftime('%H:%M')
+    tid = _add_task(client, uid, '数学', '高数强化', StudyTask.STATUS_PENDING,
+                    start=dt_mod.datetime.strptime(f_start, '%H:%M').time(),
+                    end=dt_mod.datetime.strptime(f_end, '%H:%M').time())
 
     # 番茄钟 25 分钟
     r = client.post('/api/plans/timer/start', headers=auth_headers, json={'mode': 'pomodoro'})

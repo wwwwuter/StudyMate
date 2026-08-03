@@ -37,7 +37,8 @@ def _add_record(client, uid, subject, seconds, start=None, task_id=None):
         r = StudyRecord(
             user_id=uid, task_id=task_id,
             start_time=start, end_time=start + timedelta(seconds=seconds),
-            duration=seconds, record_type=StudyRecord.MODE_COUNTUP, subject=subject,
+            duration=seconds, effective_duration=seconds,  # 直接构造：有效=真实
+            record_type=StudyRecord.MODE_COUNTUP, subject=subject,
         )
         db.session.add(r)
         db.session.commit()

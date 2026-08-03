@@ -256,12 +256,18 @@ def _sync_session_to_record(session: TimerSession):
 
     仅在有有效时长时写入，避免重复（仅由下面两个会触发状态变更的入口调用）。
     record_type 严格按 TimerSession.mode 映射；番茄钟只统计专注段。
-    extra_duration = 计划时间段结束后的额外学习时长（超时继续），单独统计不计入计划内。
+
+    时长口径（计划驱动）：
+    - actual_duration  = ended_at - actual_start（真实计时，行为分析用）
+    - task 模式：ended <= plan_end → effective=actual, extra=0；
+                ended >  plan_end → effective=plan_end-actual_start, extra=ended-plan_end
+    - 非 task 模式（番茄钟/自由/倒计时）：不套计划规则，effective=actual, extra=0
+    - planned_duration：task 模式 = plan_end-plan_start；countdown = 目标时长
     """
     if session.status != TimerSession.STATUS_DONE:
         return
-    duration = _effective_duration(session)
-    if not duration:
+    actual_duration = _effective_duration(session)
+    if not actual_duration:
         return
 
     record_type = {
@@ -276,18 +282,32 @@ def _sync_session_to_record(session: TimerSession):
         t = StudyTask.query.get(session.task_id)
         if t:
             subject = t.subject
+
+    # 计划驱动时长计算（仅 task 模式套计划规则）
+    effective = actual_duration
     extra = 0
-    if session.plan_end_time and session.ended_at and session.ended_at > session.plan_end_time:
-        extra = int((session.ended_at - session.plan_end_time).total_seconds())
+    planned = None
+    if session.mode == TimerSession.MODE_TASK and session.plan_end_time and session.ended_at:
+        if session.plan_start_time:
+            planned = max(0, int((session.plan_end_time - session.plan_start_time).total_seconds()))
+        if session.ended_at <= session.plan_end_time:
+            effective = actual_duration
+            extra = 0
+        else:
+            effective = max(0, int((session.plan_end_time - session.started_at).total_seconds()))
+            extra = int((session.ended_at - session.plan_end_time).total_seconds())
+
     db.session.add(StudyRecord(
         user_id=session.user_id,
         task_id=session.task_id,
         start_time=session.started_at,
         end_time=session.ended_at,
-        duration=duration,
+        duration=actual_duration,
+        effective_duration=effective,
+        extra_duration=extra,
         record_type=record_type,
         subject=subject,
-        extra_duration=extra,
+        planned_duration=planned,
         note=session.note,
     ))
 

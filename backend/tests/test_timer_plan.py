@@ -64,6 +64,11 @@ def test_no_overtime_extra_zero(client, auth_headers):
                .order_by(StudyRecord.id.desc()).first())
         assert rec is not None
         assert rec.extra_duration == 0
+        # 未超时：有效时长 = 真实时长（2 小时）
+        assert rec.duration == 7200
+        assert rec.effective_duration == 7200
+        # 计划安排时长 = plan_end - plan_start = 4 小时
+        assert rec.planned_duration == 4 * 3600
 
 
 def test_overtime_records_extra(client, auth_headers):
@@ -85,5 +90,11 @@ def test_overtime_records_extra(client, auth_headers):
                .filter_by(user_id=uid, record_type=StudyRecord.MODE_TASK)
                .order_by(StudyRecord.id.desc()).first())
         assert rec is not None
-        assert rec.extra_duration == 300  # 5 分钟超时
-        assert rec.duration > 0
+        # 真实投入 3 小时
+        assert rec.duration == 3 * 3600
+        # 计划有效时长 = plan_end - actual_start = 2h55m
+        assert rec.effective_duration == 10500
+        # 额外学习 = ended - plan_end = 5 分钟
+        assert rec.extra_duration == 300
+        # 计划安排时长 = plan_end - plan_start = 2h55m（测试里 plan_start=now-3h, plan_end=now-5min）
+        assert rec.planned_duration == 10500
