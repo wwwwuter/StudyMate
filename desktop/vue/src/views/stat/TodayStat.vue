@@ -52,7 +52,7 @@
                 {{ advice.source === 'ai' ? 'AI 生成' : '规则生成' }}
               </el-tag>
             </div>
-            <el-button size="small" :loading="adviceLoading" @click="loadAdvice">
+            <el-button size="small" :loading="adviceLoading" @click="loadAdvice(true)">
               {{ advice ? '重新生成' : '生成建议' }}
             </el-button>
           </div>
@@ -123,11 +123,37 @@ async function load() {
   }
 }
 
-async function loadAdvice() {
+const ADVICE_CACHE_PREFIX = 'study_advice_'
+function todayKey() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function loadCachedAdvice(): StudyAdvice | null {
+  try {
+    const raw = localStorage.getItem(ADVICE_CACHE_PREFIX + todayKey())
+    return raw ? (JSON.parse(raw) as StudyAdvice) : null
+  } catch {
+    return null
+  }
+}
+function saveCachedAdvice(a: StudyAdvice) {
+  try { localStorage.setItem(ADVICE_CACHE_PREFIX + todayKey(), JSON.stringify(a)) } catch { /* ignore */ }
+}
+
+async function loadAdvice(force = false) {
+  // 进入页面不自动调 API：今日已有缓存则直接渲染（点「重新生成」才重跑）
+  if (!force) {
+    const cached = loadCachedAdvice()
+    if (cached) {
+      advice.value = cached
+      return
+    }
+  }
   adviceLoading.value = true
   try {
     const res = await analyzeToday()
     advice.value = res.data
+    saveCachedAdvice(res.data)
   } catch {
     advice.value = null
   } finally {
